@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets and sensitive files
+infra/secrets.local.yaml
+secrets.local.yaml
+.vault-credentials.yml
+infra/.vault-credentials.yml
+*.pem
+*.key
+*.crt
+.env
+.env.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+
+# Ansible
+*.retry
+.ansible/
+
+# Helm
+charts/**/*.tgz
+*.tgz
+
+# Jenkins
+.jenkins/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
