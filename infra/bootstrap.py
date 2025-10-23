@@ -288,21 +288,21 @@ def main():
         # Step 5: Deploy Vault
         deploy_vault(config['vault']['replicas'])
 
-        # Step 6: Verify Vault pods are running
-        logger.info("Waiting for Vault pods to be running...")
-        run_ansible_playbook('ansible/verify-pods.yml', {
-            'namespace': 'vault',
-            'label_selector': 'app.kubernetes.io/name=vault'
-        }, verbose=args.debug)
-
-        # Step 7: Initialize Vault
+        # Step 6: Initialize Vault
         logger.info("Initializing Vault...")
         run_ansible_playbook('ansible/vault/init.yml', verbose=args.debug)
 
-        # Step 8: Unseal Vault
+        # Step 7: Unseal Vault
         logger.info("Unsealing Vault cluster...")
         run_ansible_playbook('ansible/vault/unseal.yml', {
             'vault_replicas': config['vault']['replicas']
+        }, verbose=args.debug)
+
+        # Step 8: Verify Vault pods are ready (after unseal)
+        logger.info("Waiting for Vault pods to be ready...")
+        run_ansible_playbook('ansible/verify-pods.yml', {
+            'namespace': 'vault',
+            'label_selector': 'app.kubernetes.io/name=vault'
         }, verbose=args.debug)
 
         # Step 9: Setup Kubernetes auth for Vault
@@ -332,8 +332,8 @@ def main():
         # Step 13: Deploy Keycloak
         deploy_keycloak(config['keycloak']['admin_password'], config['keycloak']['postgresql_password'])
 
-        # Step 14: Verify Keycloak pods are running
-        logger.info("Waiting for Keycloak pods to be running...")
+        # Step 14: Verify Keycloak pods are ready
+        logger.info("Waiting for Keycloak pods to be ready...")
         run_ansible_playbook('ansible/verify-pods.yml', {
             'namespace': 'keycloak',
             'label_selector': 'app.kubernetes.io/name=keycloak'
