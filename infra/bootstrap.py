@@ -154,6 +154,32 @@ def deploy_vault(replicas):
     logger.info("Vault deployed successfully")
 
 
+def deploy_keycloak(admin_password, postgresql_password):
+    """Deploy Keycloak using Helm"""
+    logger.info("Deploying Keycloak...")
+
+    # Add Bitnami Helm repo
+    add_helm_repo('bitnami', 'https://charts.bitnami.com/bitnami')
+
+    # Install Keycloak with configuration using bitnamilegacy images
+    cmd = [
+        'helm', 'upgrade', '--install', 'keycloak',
+        'bitnami/keycloak',
+        '--namespace', 'keycloak',
+        '--create-namespace',
+        '-f', 'helm/keycloak/values.yaml',
+        '--set', f'auth.adminPassword={admin_password}',
+        '--set', f'image.registry=docker.io',
+        '--set', f'image.repository=bitnamilegacy/keycloak',
+        '--set', f'postgresql.image.registry=docker.io',
+        '--set', f'postgresql.image.repository=bitnamilegacy/postgresql',
+        '--set', f'postgresql.auth.password={postgresql_password}'
+    ]
+
+    run_command(cmd)
+    logger.info("Keycloak deployed successfully")
+
+
 def apply_terraform(directory, vault_credentials, k8s_auth_config):
     """Apply Terraform configuration"""
     logger.info(f"Applying Terraform configuration in {directory}...")
@@ -303,11 +329,23 @@ def main():
         logger.info("Configuring Vault with Terraform...")
         apply_terraform('terraform/vault', vault_creds, k8s_auth_config)
 
+        # Step 13: Deploy Keycloak
+        deploy_keycloak(config['keycloak']['admin_password'], config['keycloak']['postgresql_password'])
+
+        # Step 14: Verify Keycloak pods are running
+        logger.info("Waiting for Keycloak pods to be running...")
+        run_ansible_playbook('ansible/verify-pods.yml', {
+            'namespace': 'keycloak',
+            'label_selector': 'app.kubernetes.io/name=keycloak'
+        }, verbose=args.debug)
+
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
         logger.info("=" * 70)
         logger.info("Vault URL: http://localhost:8200")
         logger.info(f"Vault Token: {vault_creds['vault']['root_token']}")
+        logger.info("Keycloak URL: http://localhost:8080 (use kubectl port-forward)")
+        logger.info(f"Keycloak Admin: admin / {config['keycloak']['admin_password']}")
 
     except BootstrapError as e:
         logger.error(f"Bootstrap failed: {e}")

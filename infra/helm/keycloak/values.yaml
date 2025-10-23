@@ -1,0 +1,61 @@
+---
+# Keycloak Helm Chart Values
+# Using Bitnami Keycloak chart with legacy images
+
+# Image configuration (using bitnamilegacy)
+image:
+  registry: docker.io
+  repository: bitnamilegacy/keycloak
+
+# Authentication
+auth:
+  adminUser: admin
+  # Admin password should be provided via --set or environment variable
+  # adminPassword: changeme
+
+# Production mode disabled for development
+production: false
+
+# HTTP settings
+httpRelativePath: "/"
+
+# Database configuration (using PostgreSQL)
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+  auth:
+    postgresPassword: postgres
+    username: keycloak
+    password: keycloak
+    database: keycloak
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+
+# Ingress disabled (using port-forward for local development)
+ingress:
+  enabled: false
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Replica count
+replicaCount: 1
+
+# Extra environment variables
+extraEnvVars:
+  - name: KEYCLOAK_LOG_LEVEL
+    value: INFO
+  - name: KC_HEALTH_ENABLED
+    value: "true"

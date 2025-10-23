@@ -9,7 +9,7 @@
     wait_timeout: 300
 
   tasks:
-    - name: Wait for pods to be running
+    - name: Wait for pods to be running and ready
       kubernetes.core.k8s_info:
         kind: Pod
         namespace: "{{ namespace }}"
@@ -20,12 +20,17 @@
         pod_info.resources | length > 0 and
         pod_info.resources |
         selectattr('status.phase', 'defined') |
-        selectattr('status.phase', 'equalto', 'Running') | list | length == pod_info.resources | length
+        selectattr('status.phase', 'equalto', 'Running') | list | length == pod_info.resources | length and
+        pod_info.resources |
+        selectattr('status.conditions', 'defined') |
+        map(attribute='status.conditions') | flatten |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') | list | length == pod_info.resources | length
       retries: "{{ (wait_timeout / 5) | int }}"
       delay: 5
       failed_when: false
 
     - name: Display pods status
       debug:
-        msg: "{{ pod_info.resources | length }} pod(s) in namespace '{{ namespace }}' are Running"
+        msg: "{{ pod_info.resources | length }} pod(s) in namespace '{{ namespace }}' are Running and Ready"
       when: pod_info.resources | length > 0
