@@ -5,8 +5,10 @@ Creates k3d cluster and orchestrates Ansible playbooks for deployment
 """
 
 import argparse
+import os
 import subprocess
 import sys
+import time
 import logging
 import yaml
 from pathlib import Path
@@ -20,14 +22,14 @@ class BootstrapError(Exception):
     pass
 
 
-def run_command(cmd, check=True, show_output=False):
+def run_command(cmd, check=True, show_output=False, cwd=None, env=None):
     """Execute shell command"""
     logger.debug(f"Executing: {' '.join(cmd)}")
     try:
         if show_output:
-            result = subprocess.run(cmd, check=check, text=True)
+            result = subprocess.run(cmd, check=check, text=True, cwd=cwd, env=env)
         else:
-            result = subprocess.run(cmd, check=check, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=check, capture_output=True, text=True, cwd=cwd, env=env)
             if result.stdout:
                 logger.debug(result.stdout.strip())
         return result
@@ -56,6 +58,7 @@ def check_prerequisites():
         'kubectl': ['kubectl', 'version', '--client'],
         'helm': ['helm', 'version'],
         'ansible': ['ansible', '--version'],
+        'terraform': ['terraform', 'version'],
     }
 
     for tool, cmd in tools.items():
@@ -151,6 +154,58 @@ def deploy_vault(replicas):
     logger.info("Vault deployed successfully")
 
 
+def apply_terraform(directory, vault_credentials, k8s_auth_config):
+    """Apply Terraform configuration"""
+    logger.info(f"Applying Terraform configuration in {directory}...")
+
+    tf_dir = Path(directory)
+    if not tf_dir.exists():
+        raise BootstrapError(f"Terraform directory not found: {directory}")
+
+    # Start port-forward to Vault in background
+    logger.debug("Starting port-forward to Vault...")
+    port_forward = subprocess.Popen(
+        ['kubectl', 'port-forward', '-n', 'vault', 'vault-0', '8200:8200'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    try:
+        # Wait for port-forward to establish
+        time.sleep(3)
+
+        # Set environment variables for Vault
+        env = os.environ.copy()
+        env['VAULT_ADDR'] = 'http://localhost:8200'
+        env['VAULT_TOKEN'] = vault_credentials['vault']['root_token']
+        env['TF_IN_AUTOMATION'] = 'true'
+
+        # Prepare Terraform variables
+        tf_vars = [
+            '-var', f'vault_addr=http://localhost:8200',
+            '-var', f'vault_token={vault_credentials["vault"]["root_token"]}',
+            '-var', f'kubernetes_host={k8s_auth_config["kubernetes"]["host"]}',
+            '-var', f'token_reviewer_jwt={k8s_auth_config["kubernetes"]["token_reviewer_jwt"]}',
+            '-var', f'kubernetes_ca_cert={k8s_auth_config["kubernetes"]["ca_cert"]}'
+        ]
+
+        # Initialize Terraform
+        logger.info("Initializing Terraform...")
+        run_command(['terraform', 'init'], cwd=str(tf_dir), env=env)
+
+        # Apply Terraform
+        logger.info("Applying Terraform configuration...")
+        run_command(['terraform', 'apply', '-auto-approve'] + tf_vars, cwd=str(tf_dir), env=env)
+
+        logger.info("Terraform configuration applied successfully")
+
+    finally:
+        # Stop port-forward
+        logger.debug("Stopping port-forward...")
+        port_forward.terminate()
+        port_forward.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Bootstrap DevSecOps Platform on k3d',
@@ -224,9 +279,35 @@ def main():
             'vault_replicas': config['vault']['replicas']
         }, verbose=args.debug)
 
+        # Step 9: Setup Kubernetes auth for Vault
+        logger.info("Setting up Kubernetes authentication for Vault...")
+        run_ansible_playbook('ansible/vault/setup-k8s-auth.yml', verbose=args.debug)
+
+        # Step 10: Load Vault credentials for Terraform
+        vault_creds_file = Path('.vault-credentials.yml')
+        if not vault_creds_file.exists():
+            raise BootstrapError("Vault credentials file not found")
+
+        with open(vault_creds_file, 'r') as f:
+            vault_creds = yaml.safe_load(f)
+
+        # Step 11: Load Kubernetes auth configuration
+        k8s_auth_file = Path('.vault-k8s-auth.yml')
+        if not k8s_auth_file.exists():
+            raise BootstrapError("Kubernetes auth configuration file not found")
+
+        with open(k8s_auth_file, 'r') as f:
+            k8s_auth_config = yaml.safe_load(f)
+
+        # Step 12: Apply Terraform configuration for Vault
+        logger.info("Configuring Vault with Terraform...")
+        apply_terraform('terraform/vault', vault_creds, k8s_auth_config)
+
         logger.info("=" * 70)
-        logger.info("Bootstrap Phase 2: Vault Ready")
+        logger.info("Bootstrap Complete: Infrastructure Ready")
         logger.info("=" * 70)
+        logger.info("Vault URL: http://localhost:8200")
+        logger.info(f"Vault Token: {vault_creds['vault']['root_token']}")
 
     except BootstrapError as e:
         logger.error(f"Bootstrap failed: {e}")

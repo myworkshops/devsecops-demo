@@ -1,0 +1,93 @@
+---
+- name: Setup Kubernetes Auth Prerequisites for Vault
+  hosts: localhost
+  gather_facts: no
+  vars:
+    vault_namespace: "vault"
+    service_account_name: "vault-auth"
+    output_file: "../../.vault-k8s-auth.yml"
+
+  tasks:
+    - name: Create ServiceAccount for Vault auth
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: "{{ service_account_name }}"
+            namespace: "{{ vault_namespace }}"
+
+    - name: Create ClusterRoleBinding for Vault auth
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: vault-auth-delegator
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: system:auth-delegator
+          subjects:
+            - kind: ServiceAccount
+              name: "{{ service_account_name }}"
+              namespace: "{{ vault_namespace }}"
+
+    - name: Create Secret for ServiceAccount token
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ service_account_name }}-token"
+            namespace: "{{ vault_namespace }}"
+            annotations:
+              kubernetes.io/service-account.name: "{{ service_account_name }}"
+          type: kubernetes.io/service-account-token
+
+    - name: Wait for token to be created
+      pause:
+        seconds: 2
+
+    - name: Get ServiceAccount token
+      kubernetes.core.k8s_info:
+        kind: Secret
+        name: "{{ service_account_name }}-token"
+        namespace: "{{ vault_namespace }}"
+      register: sa_secret
+
+    - name: Get Kubernetes CA certificate
+      kubernetes.core.k8s_info:
+        kind: Secret
+        name: "{{ service_account_name }}-token"
+        namespace: "{{ vault_namespace }}"
+      register: ca_secret
+
+    - name: Get Kubernetes API server URL
+      shell: kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+      register: k8s_host
+      changed_when: false
+
+    - name: Extract token and CA cert
+      set_fact:
+        token_reviewer_jwt: "{{ sa_secret.resources[0].data.token | b64decode }}"
+        kubernetes_ca_cert_b64: "{{ ca_secret.resources[0].data['ca.crt'] }}"
+        kubernetes_host: "{{ k8s_host.stdout }}"
+
+    - name: Save Kubernetes auth configuration
+      copy:
+        content: |
+          ---
+          kubernetes:
+            host: "{{ kubernetes_host }}"
+            ca_cert: "{{ kubernetes_ca_cert_b64 }}"
+            token_reviewer_jwt: "{{ token_reviewer_jwt }}"
+        dest: "{{ output_file }}"
+        mode: '0600'
+
+    - name: Display configuration saved
+      debug:
+        msg: "Kubernetes auth configuration saved to {{ output_file }}"

@@ -31,6 +31,8 @@ infra/secrets.local.yaml
 secrets.local.yaml
 .vault-credentials.yml
 infra/.vault-credentials.yml
+.vault-k8s-auth.yml
+infra/.vault-k8s-auth.yml
 *.pem
 *.key
 *.crt
