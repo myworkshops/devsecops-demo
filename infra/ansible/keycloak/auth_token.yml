@@ -1,0 +1,19 @@
+---
+- name: Create authentication token for Keycloak
+  uri:
+    url: "{{ keycloak_url }}/realms/master/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      username: "{{ auth_username }}"
+      password: "{{ auth_password }}"
+      grant_type: "password"
+      client_id: "{{ auth_client_id }}"
+    validate_certs: "{{ validate_certs }}"
+  register: keycloak_token_response
+  no_log: "{{ lock_log | default(true) }}"
+
+- name: Extract Keycloak token
+  ansible.builtin.set_fact:
+    keycloak_token: "{{ keycloak_token_response.json.access_token }}"
+  no_log: "{{ lock_log | default(true) }}"

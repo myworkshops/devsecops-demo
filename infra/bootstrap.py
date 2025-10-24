@@ -288,28 +288,35 @@ def main():
         # Step 5: Deploy Vault
         deploy_vault(config['vault']['replicas'])
 
-        # Step 6: Initialize Vault
+        # Step 6: Wait for Vault pods to be running (before init)
+        logger.info("Waiting for Vault pods to be running...")
+        run_ansible_playbook('ansible/verify-pods-running.yml', {
+            'namespace': 'vault',
+            'label_selector': 'app.kubernetes.io/name=vault'
+        }, verbose=args.debug)
+
+        # Step 7: Initialize Vault
         logger.info("Initializing Vault...")
         run_ansible_playbook('ansible/vault/init.yml', verbose=args.debug)
 
-        # Step 7: Unseal Vault
+        # Step 8: Unseal Vault
         logger.info("Unsealing Vault cluster...")
         run_ansible_playbook('ansible/vault/unseal.yml', {
             'vault_replicas': config['vault']['replicas']
         }, verbose=args.debug)
 
-        # Step 8: Verify Vault pods are ready (after unseal)
+        # Step 9: Verify Vault pods are ready (after unseal)
         logger.info("Waiting for Vault pods to be ready...")
         run_ansible_playbook('ansible/verify-pods.yml', {
             'namespace': 'vault',
             'label_selector': 'app.kubernetes.io/name=vault'
         }, verbose=args.debug)
 
-        # Step 9: Setup Kubernetes auth for Vault
+        # Step 10: Setup Kubernetes auth for Vault
         logger.info("Setting up Kubernetes authentication for Vault...")
         run_ansible_playbook('ansible/vault/setup-k8s-auth.yml', verbose=args.debug)
 
-        # Step 10: Load Vault credentials for Terraform
+        # Step 11: Load Vault credentials for Terraform
         vault_creds_file = Path('.vault-credentials.yml')
         if not vault_creds_file.exists():
             raise BootstrapError("Vault credentials file not found")
@@ -317,7 +324,7 @@ def main():
         with open(vault_creds_file, 'r') as f:
             vault_creds = yaml.safe_load(f)
 
-        # Step 11: Load Kubernetes auth configuration
+        # Step 12: Load Kubernetes auth configuration
         k8s_auth_file = Path('.vault-k8s-auth.yml')
         if not k8s_auth_file.exists():
             raise BootstrapError("Kubernetes auth configuration file not found")
@@ -325,19 +332,57 @@ def main():
         with open(k8s_auth_file, 'r') as f:
             k8s_auth_config = yaml.safe_load(f)
 
-        # Step 12: Apply Terraform configuration for Vault
+        # Step 13: Apply Terraform configuration for Vault
         logger.info("Configuring Vault with Terraform...")
         apply_terraform('terraform/vault', vault_creds, k8s_auth_config)
 
-        # Step 13: Deploy Keycloak
+        # Step 14: Deploy Keycloak
         deploy_keycloak(config['keycloak']['admin_password'], config['keycloak']['postgresql_password'])
 
-        # Step 14: Verify Keycloak pods are ready
+        # Step 15: Verify Keycloak pods are ready
         logger.info("Waiting for Keycloak pods to be ready...")
         run_ansible_playbook('ansible/verify-pods.yml', {
             'namespace': 'keycloak',
             'label_selector': 'app.kubernetes.io/name=keycloak'
         }, verbose=args.debug)
+
+        # Step 16: Configure Keycloak (realms, roles, users)
+        logger.info("Configuring Keycloak...")
+
+        # Start port-forward to Vault in background
+        logger.debug("Starting port-forward to Vault...")
+        vault_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'vault', 'svc/vault', '8200:8200'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Start port-forward to Keycloak in background
+        logger.debug("Starting port-forward to Keycloak...")
+        keycloak_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'keycloak', 'svc/keycloak', '8080:80'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        try:
+            # Wait for port-forwards to establish
+            time.sleep(5)
+
+            # Run Keycloak configuration playbook
+            run_ansible_playbook('ansible/keycloak/configure.yml', {
+                'vault_token': vault_creds['vault']['root_token']
+            }, verbose=args.debug)
+
+            logger.info("Keycloak configuration completed")
+
+        finally:
+            # Stop port-forwards
+            logger.debug("Stopping port-forwards...")
+            keycloak_port_forward.terminate()
+            vault_port_forward.terminate()
+            keycloak_port_forward.wait()
+            vault_port_forward.wait()
 
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
