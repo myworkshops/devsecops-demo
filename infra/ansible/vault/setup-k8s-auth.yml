@@ -1,6 +1,7 @@
 ---
 - name: Setup Kubernetes Auth Prerequisites for Vault
   hosts: localhost
+  connection: local
   gather_facts: no
   vars:
     vault_namespace: "vault"

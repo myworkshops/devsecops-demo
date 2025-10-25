@@ -121,7 +121,11 @@ def run_ansible_playbook(playbook_path, extra_vars=None, verbose=False):
         for key, value in extra_vars.items():
             cmd.extend(['-e', f'{key}={value}'])
 
-    run_command(cmd, show_output=verbose)
+    # Set ANSIBLE_CONFIG to use the config in ansible directory
+    env = os.environ.copy()
+    env['ANSIBLE_CONFIG'] = 'ansible/ansible.cfg'
+
+    run_command(cmd, show_output=verbose, cwd=None, env=env)
     logger.info(f"Playbook completed: {playbook_path}")
 
 
@@ -178,6 +182,29 @@ def deploy_keycloak(admin_password, postgresql_password):
 
     run_command(cmd)
     logger.info("Keycloak deployed successfully")
+
+
+def deploy_jenkins(admin_password):
+    """Deploy Jenkins using Helm"""
+    logger.info("Deploying Jenkins...")
+
+    # Add Jenkins Helm repo
+    add_helm_repo('jenkins', 'https://charts.jenkins.io')
+
+    # Install Jenkins with configuration
+    cmd = [
+        'helm', 'upgrade', '--install', 'jenkins',
+        'jenkins/jenkins',
+        '--namespace', 'jenkins',
+        '--create-namespace',
+        '-f', 'helm/jenkins/values.yaml',
+        '--set', f'controller.admin.password={admin_password}',
+        '--wait',
+        '--timeout', '10m'
+    ]
+
+    run_command(cmd)
+    logger.info("Jenkins deployed successfully")
 
 
 def apply_terraform(directory, vault_credentials, k8s_auth_config):
@@ -336,17 +363,42 @@ def main():
         logger.info("Configuring Vault with Terraform...")
         apply_terraform('terraform/vault', vault_creds, k8s_auth_config)
 
-        # Step 14: Deploy Keycloak
+        # Step 14: Store application secrets in Vault
+        logger.info("Storing application secrets in Vault...")
+
+        # Start port-forward to Vault
+        logger.debug("Starting port-forward to Vault...")
+        vault_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'vault', 'svc/vault', '8200:8200'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        try:
+            # Wait for port-forward to establish
+            time.sleep(5)
+
+            run_ansible_playbook('ansible/vault/store-secrets.yml', {
+                'vault_token': vault_creds['vault']['root_token']
+            }, verbose=args.debug)
+
+            logger.info("Application secrets stored in Vault successfully")
+        finally:
+            # Terminate port-forward
+            vault_port_forward.terminate()
+            vault_port_forward.wait()
+
+        # Step 15: Deploy Keycloak
         deploy_keycloak(config['keycloak']['admin_password'], config['keycloak']['postgresql_password'])
 
-        # Step 15: Verify Keycloak pods are ready
+        # Step 16: Verify Keycloak pods are ready
         logger.info("Waiting for Keycloak pods to be ready...")
         run_ansible_playbook('ansible/verify-pods.yml', {
             'namespace': 'keycloak',
             'label_selector': 'app.kubernetes.io/name=keycloak'
         }, verbose=args.debug)
 
-        # Step 16: Configure Keycloak (realms, roles, users)
+        # Step 17: Configure Keycloak (realms, roles, users)
         logger.info("Configuring Keycloak...")
 
         # Start port-forward to Vault in background
@@ -384,6 +436,54 @@ def main():
             keycloak_port_forward.wait()
             vault_port_forward.wait()
 
+        # Step 18: Deploy Jenkins
+        deploy_jenkins(config['jenkins']['admin_password'])
+
+        # Step 19: Verify Jenkins pods are ready
+        logger.info("Waiting for Jenkins pods to be ready...")
+        run_ansible_playbook('ansible/verify-pods.yml', {
+            'namespace': 'jenkins',
+            'label_selector': 'app.kubernetes.io/component=jenkins-controller'
+        }, verbose=args.debug)
+
+        # Step 20: Configure Jenkins (credentials, jobs)
+        logger.info("Configuring Jenkins...")
+
+        # Start port-forward to Vault in background
+        logger.debug("Starting port-forward to Vault...")
+        vault_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'vault', 'svc/vault', '8200:8200'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Start port-forward to Jenkins in background
+        logger.debug("Starting port-forward to Jenkins...")
+        jenkins_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'jenkins', 'svc/jenkins', '8080:8080'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        try:
+            # Wait for port-forwards to establish
+            time.sleep(10)
+
+            # Run Jenkins configuration playbook
+            run_ansible_playbook('ansible/jenkins/configure.yml', {
+                'vault_token': vault_creds['vault']['root_token']
+            }, verbose=args.debug)
+
+            logger.info("Jenkins configuration completed")
+
+        finally:
+            # Stop port-forwards
+            logger.debug("Stopping port-forwards...")
+            jenkins_port_forward.terminate()
+            vault_port_forward.terminate()
+            jenkins_port_forward.wait()
+            vault_port_forward.wait()
+
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
         logger.info("=" * 70)
@@ -391,6 +491,8 @@ def main():
         logger.info(f"Vault Token: {vault_creds['vault']['root_token']}")
         logger.info("Keycloak URL: http://localhost:8080 (use kubectl port-forward)")
         logger.info(f"Keycloak Admin: admin / {config['keycloak']['admin_password']}")
+        logger.info("Jenkins URL: http://localhost:8080 (use kubectl port-forward)")
+        logger.info(f"Jenkins Admin: admin / {config['jenkins']['admin_password']}")
 
     except BootstrapError as e:
         logger.error(f"Bootstrap failed: {e}")

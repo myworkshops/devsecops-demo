@@ -1,6 +1,7 @@
 ---
 - name: Verify Pods are Ready
   hosts: localhost
+  connection: local
   gather_facts: no
   vars:
     namespace: "default"

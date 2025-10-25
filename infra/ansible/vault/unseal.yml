@@ -1,6 +1,7 @@
 ---
 - name: Unseal HashiCorp Vault HA Cluster
   hosts: localhost
+  connection: local
   gather_facts: no
   vars:
     vault_namespace: "vault"

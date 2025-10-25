@@ -1,0 +1,125 @@
+---
+# Jenkins Helm Chart Values
+# Credentials will be injected from secrets.local.yaml via bootstrap
+
+controller:
+  componentName: "jenkins-controller"
+
+  image:
+    tag: "jdk21"
+
+  # Admin credentials (will be set from secrets.local.yaml)
+  admin:
+    username: "admin"
+    # password: set via --set
+    createSecret: true
+
+  # Jenkins URL
+  jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+
+  # Resources
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+
+  # Java options
+  javaOpts: "-Xms1g -Xmx2g"
+
+  # Service configuration
+  serviceType: ClusterIP
+  servicePort: 8080
+
+  # Essential plugins - let Jenkins resolve latest compatible versions
+  installPlugins:
+    - kubernetes
+    - workflow-aggregator
+    - git
+    - configuration-as-code
+    - credentials-binding
+    - docker-workflow
+    - blueocean
+    - sonar
+    - prometheus
+    - ansicolor
+    - timestamper
+    - build-timeout
+
+  # Skip setup wizard
+  installLatestPlugins: true
+  installLatestSpecifiedPlugins: true
+
+  # Additional init scripts to skip setup wizard
+  initScripts:
+    - |
+      import jenkins.model.*
+      import jenkins.install.*
+      def instance = Jenkins.getInstance()
+      instance.setInstallState(InstallState.INITIAL_SETUP_COMPLETED)
+      instance.save()
+
+  # JCasC configuration
+  JCasC:
+    enabled: true
+    defaultConfig: true
+    configScripts:
+      welcome-message: |
+        jenkins:
+          systemMessage: "DevSecOps Device Statistics Platform - CI/CD"
+      security: |
+        jenkins:
+          securityRealm:
+            local:
+              allowsSignup: false
+              users:
+                - id: "admin"
+                  name: "Administrator"
+                  password: "${chart-admin-password}"
+          authorizationStrategy:
+            loggedInUsersCanDoAnything:
+              allowAnonymousRead: false
+
+  # Persistent volume
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: "local-path"
+
+  # Security context
+  securityContext:
+    runAsUser: 1000
+    fsGroup: 1000
+    runAsNonRoot: true
+
+  # Service account
+  serviceAccount:
+    create: true
+    name: jenkins
+
+# Agent configuration
+agent:
+  enabled: true
+  podName: jenkins-agent
+
+  # Resources for agents
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# RBAC
+rbac:
+  create: true
+  readSecrets: true
+
+# Persistence for jobs and builds
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: "local-path"
