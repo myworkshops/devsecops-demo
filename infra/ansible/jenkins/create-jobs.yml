@@ -1,0 +1,126 @@
+---
+- name: Create Jenkins pipeline jobs and configure shared library
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    jenkins_url: "http://localhost:8080"
+
+  tasks:
+    - name: Load configuration from secrets file
+      include_vars:
+        file: "{{ playbook_dir }}/../../secrets.local.yaml"
+        name: secrets
+
+    - name: Set Jenkins variables
+      set_fact:
+        jenkins_admin_user: "admin"
+        jenkins_admin_password: "{{ secrets.jenkins.admin_password }}"
+        lock_log: "{{ secrets.jenkins.lock_log | default(true) }}"
+
+    - name: Wait for Jenkins to be ready
+      uri:
+        url: "{{ jenkins_url }}/login"
+        method: GET
+        status_code: 200
+        validate_certs: false
+      register: jenkins_ready
+      until: jenkins_ready.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Configure Jenkins shared library
+      community.general.jenkins_script:
+        url: "{{ jenkins_url }}"
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        validate_certs: false
+        timeout: 30
+        script: |
+          import jenkins.model.Jenkins
+          import jenkins.plugins.git.GitSCMSource
+          import org.jenkinsci.plugins.workflow.libs.*
+
+          def jenkins = Jenkins.getInstance()
+
+          // Remove existing library if it exists
+          def globalLibraries = jenkins.getDescriptor("org.jenkinsci.plugins.workflow.libs.GlobalLibraries")
+          def existingLibs = globalLibraries.get().getLibraries()
+          existingLibs.removeIf { it.getName() == "jenkins-library" }
+
+          // Create new library configuration
+          def libraryConfiguration = new LibraryConfiguration(
+              "jenkins-library",
+              new SCMSourceRetriever(
+                  new GitSCMSource(
+                      "jenkins-library",
+                      "file:///workspace/jenkins-library",
+                      "",
+                      "",
+                      "",
+                      false
+                  )
+              )
+          )
+          libraryConfiguration.setDefaultVersion("main")
+          libraryConfiguration.setImplicit(false)
+          libraryConfiguration.setAllowVersionOverride(true)
+
+          // Add library
+          existingLibs.add(libraryConfiguration)
+          globalLibraries.get().setLibraries(existingLibs)
+          globalLibraries.save()
+
+          println "✓ Jenkins shared library 'jenkins-library' configured successfully"
+      register: library_result
+      no_log: "{{ lock_log }}"
+
+    - name: Create DeployDevSecOpsApp pipeline job
+      community.general.jenkins_script:
+        url: "{{ jenkins_url }}"
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        validate_certs: false
+        timeout: 30
+        script: |
+          import jenkins.model.Jenkins
+          import org.jenkinsci.plugins.workflow.job.WorkflowJob
+          import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition
+          import hudson.plugins.git.GitSCM
+          import hudson.plugins.git.BranchSpec
+
+          def jenkins = Jenkins.getInstance()
+          def jobName = "DeployDevSecOpsApp"
+
+          // Delete job if it exists
+          def existingJob = jenkins.getItem(jobName)
+          if (existingJob != null) {
+              existingJob.delete()
+          }
+
+          // Create new pipeline job
+          def job = jenkins.createProject(WorkflowJob, jobName)
+          job.setDescription("DevSecOps Application Deployment Pipeline - Automated CI/CD with Vault integration")
+
+          // Configure to use pipeline script from SCM
+          def scm = new GitSCM("file:///workspace/devsecops_practical_test")
+          scm.branches = [new BranchSpec("*/main")]
+
+          def definition = new CpsScmFlowDefinition(scm, "pipelines/DeployDevSecOpsApp.groovy")
+          definition.setLightweight(true)
+          job.setDefinition(definition)
+
+          job.save()
+
+          println "✓ Pipeline job 'DeployDevSecOpsApp' created successfully"
+      register: job_result
+      no_log: "{{ lock_log }}"
+
+    - name: Display configuration summary
+      debug:
+        msg:
+          - "Jenkins jobs and library configured successfully"
+          - "Jenkins URL: {{ jenkins_url }}"
+          - "Shared library: jenkins-library (file:///workspace/jenkins-library)"
+          - "Pipeline job: DeployDevSecOpsApp"
+          - "Pipeline script: pipelines/DeployDevSecOpsApp.groovy"
