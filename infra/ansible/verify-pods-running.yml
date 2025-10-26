@@ -1,0 +1,32 @@
+---
+- name: Verify Pods are Running (not necessarily Ready)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    namespace: "default"
+    label_selector: ""
+    pod_name: ""
+    wait_timeout: 300
+
+  tasks:
+    - name: Wait for pods to be running
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ namespace }}"
+        label_selectors: "{{ [label_selector] if label_selector else omit }}"
+        name: "{{ pod_name if pod_name else omit }}"
+      register: pod_info
+      until: >
+        pod_info.resources | length > 0 and
+        pod_info.resources |
+        selectattr('status.phase', 'defined') |
+        selectattr('status.phase', 'equalto', 'Running') | list | length == pod_info.resources | length
+      retries: "{{ (wait_timeout / 5) | int }}"
+      delay: 5
+      failed_when: false
+
+    - name: Display pods status
+      debug:
+        msg: "{{ pod_info.resources | length }} pod(s) in namespace '{{ namespace }}' are Running"
+      when: pod_info.resources | length > 0

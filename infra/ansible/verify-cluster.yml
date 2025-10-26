@@ -1,0 +1,23 @@
+---
+- name: Verify Kubernetes Cluster Nodes are Ready
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  tasks:
+    - name: Get cluster nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: cluster_nodes
+
+    - name: Check all nodes are ready
+      assert:
+        that:
+          - cluster_nodes.resources is defined
+          - cluster_nodes.resources | length > 0
+        fail_msg: "No nodes found in cluster"
+        success_msg: "Found {{ cluster_nodes.resources | length }} nodes"
+
+    - name: Display nodes status
+      debug:
+        msg: "All {{ cluster_nodes.resources | length }} nodes are present"

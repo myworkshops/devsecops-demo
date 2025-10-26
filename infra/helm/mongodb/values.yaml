@@ -1,0 +1,35 @@
+---
+# MongoDB Community Operator Helm Chart Values
+
+# Operator configuration
+operator:
+  # Operator deployment name
+  name: mongodb-kubernetes-operator
+
+  # Namespace where the operator will watch for MongoDB resources
+  # Leave empty to watch all namespaces
+  watchNamespace: ""
+
+# Resource limits for the operator
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# MongoDB Community Operator image
+image:
+  repository: quay.io/mongodb/mongodb-kubernetes-operator
+  pullPolicy: IfNotPresent
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: mongodb-kubernetes-operator
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 2000

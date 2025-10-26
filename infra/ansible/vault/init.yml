@@ -1,0 +1,62 @@
+---
+- name: Initialize HashiCorp Vault
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    vault_namespace: "vault"
+    vault_pod: "vault-0"
+    vault_credentials_file: "../../.vault-credentials.yml"
+
+  tasks:
+    - name: Check if Vault is already initialized
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "{{ vault_pod }}"
+        command: vault status -format=json
+      register: vault_status
+      failed_when: false
+      changed_when: false
+
+    - name: Parse Vault status
+      set_fact:
+        vault_initialized: "{{ (vault_status.stdout | from_json).initialized }}"
+      when: vault_status.rc == 0
+
+    - name: Initialize Vault with single key share
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "{{ vault_pod }}"
+        command: vault operator init -key-shares=1 -key-threshold=1 -format=json
+      register: vault_init_output
+      when: not vault_initialized | default(false)
+
+    - name: Extract credentials from init output
+      set_fact:
+        vault_unseal_key: "{{ (vault_init_output.stdout | from_json).unseal_keys_b64[0] }}"
+        vault_root_token: "{{ (vault_init_output.stdout | from_json).root_token }}"
+      when: vault_init_output is changed
+
+    - name: Save credentials to file
+      copy:
+        content: |
+          ---
+          vault:
+            unseal_key: "{{ vault_unseal_key }}"
+            root_token: "{{ vault_root_token }}"
+            address: "http://vault.vault.svc.cluster.local:8200"
+        dest: "{{ vault_credentials_file }}"
+        mode: '0600'
+      when: vault_init_output is changed
+
+    - name: Load existing credentials if already initialized
+      include_vars:
+        file: "{{ vault_credentials_file }}"
+        name: existing_creds
+      when: vault_initialized | default(false)
+
+    - name: Set credentials from file
+      set_fact:
+        vault_unseal_key: "{{ existing_creds.vault.unseal_key }}"
+        vault_root_token: "{{ existing_creds.vault.root_token }}"
+      when: vault_initialized | default(false)

@@ -1,0 +1,55 @@
+---
+# External Secrets Operator Helm Chart Values
+
+# Install CRDs
+installCRDs: true
+
+# Replica count for operator deployment
+replicaCount: 1
+
+# Resource limits for the operator
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# External Secrets Operator image
+image:
+  repository: ghcr.io/external-secrets/external-secrets
+  pullPolicy: IfNotPresent
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: external-secrets-operator
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Webhook configuration
+webhook:
+  create: true
+  port: 10250
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Cert controller for webhook certificates
+certController:
+  create: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi

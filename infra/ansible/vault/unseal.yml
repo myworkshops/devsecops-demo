@@ -1,0 +1,61 @@
+---
+- name: Unseal HashiCorp Vault HA Cluster
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    vault_namespace: "vault"
+    vault_credentials_file: "../../.vault-credentials.yml"
+    vault_replicas: 3
+
+  tasks:
+    - name: Load Vault credentials
+      include_vars:
+        file: "{{ vault_credentials_file }}"
+        name: vault_creds
+
+    - name: Unseal vault-0 (primary node)
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "vault-0"
+        command: "vault operator unseal {{ vault_creds.vault.unseal_key }}"
+      register: unseal_primary
+
+    - name: Wait for vault-0 to be ready
+      pause:
+        seconds: 5
+
+    - name: Join secondary nodes to Raft cluster
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "vault-{{ item }}"
+        command: "vault operator raft join http://vault-0.vault-internal:8200"
+      loop: "{{ range(1, vault_replicas | int) | list }}"
+      register: raft_join
+      failed_when: false
+
+    - name: Unseal secondary nodes
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "vault-{{ item }}"
+        command: "vault operator unseal {{ vault_creds.vault.unseal_key }}"
+      loop: "{{ range(1, vault_replicas | int) | list }}"
+      register: unseal_secondary
+      failed_when: false
+
+    - name: Verify all Vault pods status
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "vault-{{ item }}"
+        command: vault status -format=json
+      loop: "{{ range(0, vault_replicas | int) | list }}"
+      register: vault_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display cluster status
+      debug:
+        msg: "vault-{{ item.item }} - Sealed: {{ (item.stdout | from_json).sealed }}"
+      loop: "{{ vault_status.results }}"
+      loop_control:
+        label: "vault-{{ item.item }}"

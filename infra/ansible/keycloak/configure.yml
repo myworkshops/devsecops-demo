@@ -1,0 +1,118 @@
+---
+- name: Configure Keycloak
+  hosts: localhost
+  gather_facts: false
+  vars:
+    keycloak_url: "http://localhost:8080"
+    auth_client_id: "admin-cli"
+    auth_realm: "master"
+    auth_username: "admin"
+    validate_certs: false
+    lock_log: true
+
+  tasks:
+    - name: Load configuration from secrets file
+      include_vars:
+        file: "{{ playbook_dir }}/../../secrets.local.yaml"
+        name: secrets
+
+    - name: Set Keycloak variables
+      set_fact:
+        auth_password: "{{ secrets.keycloak.admin_password }}"
+        keycloak_admin_user: "admin"
+        keycloak_admin_password: "{{ secrets.keycloak.admin_password }}"
+        keycloak_postgresql_password: "{{ secrets.keycloak.postgresql_password }}"
+        realms: "{{ secrets.keycloak.realms }}"
+        lock_log: "{{ secrets.keycloak.lock_log | default(true) }}"
+
+    - name: Get authentication token
+      include_tasks: auth_token.yml
+
+    - name: Create realms for each environment
+      community.general.keycloak_realm:
+        auth_client_id: "{{ auth_client_id }}"
+        auth_keycloak_url: "{{ keycloak_url }}"
+        token: "{{ keycloak_token }}"
+        validate_certs: "{{ validate_certs }}"
+        id: "{{ item.name }}"
+        realm: "{{ item.name }}"
+        state: present
+        enabled: true
+        display_name: "{{ item.display_name }}"
+      loop: "{{ realms }}"
+      no_log: "{{ lock_log }}"
+
+    - name: Create roles for each realm
+      community.general.keycloak_role:
+        auth_client_id: "{{ auth_client_id }}"
+        auth_keycloak_url: "{{ keycloak_url }}"
+        token: "{{ keycloak_token }}"
+        validate_certs: "{{ validate_certs }}"
+        realm: "{{ item.0.name }}"
+        name: "{{ item.1.name }}"
+        description: "{{ item.1.description }}"
+        state: present
+      loop: "{{ realms | subelements('roles') }}"
+      no_log: "{{ lock_log }}"
+
+    - name: Create users for each realm
+      community.general.keycloak_user:
+        auth_client_id: "{{ auth_client_id }}"
+        auth_keycloak_url: "{{ keycloak_url }}"
+        token: "{{ keycloak_token }}"
+        validate_certs: "{{ validate_certs }}"
+        realm: "{{ item.0.name }}"
+        username: "{{ item.1.username }}"
+        firstName: "{{ item.1.firstName }}"
+        lastName: "{{ item.1.lastName }}"
+        email: "{{ item.1.email }}"
+        enabled: "{{ item.1.enabled }}"
+        emailVerified: "{{ item.1.emailVerified }}"
+        credentials:
+          - type: password
+            value: "{{ item.1.password }}"
+            temporary: false
+        state: present
+      loop: "{{ realms | subelements('users', skip_missing=True) }}"
+      no_log: "{{ lock_log }}"
+
+    - name: Assign roles to users
+      community.general.keycloak_user_rolemapping:
+        auth_keycloak_url: "{{ keycloak_url }}"
+        auth_realm: "{{ auth_realm }}"
+        auth_username: "{{ auth_username }}"
+        auth_password: "{{ auth_password }}"
+        validate_certs: "{{ validate_certs }}"
+        realm: "{{ item.0.name }}"
+        target_username: "{{ item.1.username }}"
+        roles: "{{ item.1.roles | map('regex_replace', '^(.*)$', '{\"name\": \"\\1\"}') | map('from_json') | list }}"
+      loop: "{{ realms | subelements('users', skip_missing=True) }}"
+      no_log: "{{ lock_log }}"
+      when: item.1.roles is defined and item.1.roles | length > 0
+
+    - name: Store Keycloak credentials in Vault
+      uri:
+        method: PUT
+        url: "http://localhost:8200/v1/secret/data/keycloak"
+        body:
+          data:
+            admin_user: "{{ keycloak_admin_user }}"
+            admin_password: "{{ keycloak_admin_password }}"
+            postgresql_password: "{{ keycloak_postgresql_password }}"
+            keycloak_url: "{{ keycloak_url }}"
+        body_format: json
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+          X-Vault-Request: "true"
+        validate_certs: false
+      register: vault_put_result
+      retries: 3
+      delay: 2
+      no_log: "{{ lock_log }}"
+
+    - name: Display configuration summary
+      debug:
+        msg:
+          - "Keycloak configuration completed successfully"
+          - "Realms: {{ realms | map(attribute='name') | list | join(', ') }}"
+          - "Credentials stored in Vault at secrets/keycloak"

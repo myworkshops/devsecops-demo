@@ -1,0 +1,72 @@
+# Vault HA Configuration for k3d
+# Based on HashiCorp Vault Helm Chart
+
+global:
+  enabled: true
+  tlsDisable: true  # TLS disabled for lab environment only
+
+injector:
+  enabled: false  # Disable sidecar injector for simplicity
+
+server:
+  # Enable HA mode with Raft storage
+  ha:
+    enabled: true
+    replicas: 3
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          tls_disable = 1
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+        }
+
+        service_registration "kubernetes" {}
+
+  # Data storage for Raft
+  dataStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: null
+    accessMode: ReadWriteOnce
+
+  # Audit storage
+  auditStorage:
+    enabled: true
+    size: 1Gi
+    storageClass: null
+    accessMode: ReadWriteOnce
+
+  # Service configuration
+  service:
+    enabled: true
+    type: LoadBalancer
+    port: 8200
+    targetPort: 8200
+
+  # UI access
+  ui:
+    enabled: true
+    serviceType: LoadBalancer
+    externalPort: 8200
+
+  # Resource limits
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+  # Extra environment variables
+  extraEnvironmentVars:
+    VAULT_LOG_LEVEL: debug

@@ -1,0 +1,106 @@
+---
+- name: Configure Jenkins
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    jenkins_url: "http://localhost:8080"
+
+  tasks:
+    - name: Load configuration from secrets file
+      include_vars:
+        file: "{{ playbook_dir }}/../../secrets.local.yaml"
+        name: secrets
+
+    - name: Set Jenkins variables
+      set_fact:
+        jenkins_admin_user: "admin"
+        jenkins_admin_password: "{{ secrets.jenkins.admin_password }}"
+        git_repository: "{{ secrets.jenkins.git_repository }}"
+        git_credentials_id: "{{ secrets.jenkins.git_credentials_id }}"
+        dockerhub_username: "{{ secrets.jenkins.dockerhub_username }}"
+        dockerhub_password: "{{ secrets.jenkins.dockerhub_password }}"
+        sonarcloud_token: "{{ secrets.jenkins.sonarcloud_token }}"
+        github_token: "{{ secrets.jenkins.github_token | default('') }}"
+        lock_log: "{{ secrets.jenkins.lock_log | default(true) }}"
+
+    - name: Wait for Jenkins to be ready
+      uri:
+        url: "{{ jenkins_url }}/login"
+        method: GET
+        status_code: 200
+        validate_certs: false
+      register: jenkins_ready
+      until: jenkins_ready.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Generate Jenkins API token for Vault credential creation
+      community.general.jenkins_credential:
+        url: "{{ jenkins_url }}"
+        name: "ansible-automation-token"
+        jenkins_user: "{{ jenkins_admin_user }}"
+        jenkins_password: "{{ jenkins_admin_password }}"
+        type: "token"
+        state: present
+      register: jenkins_token_result
+      no_log: "{{ lock_log }}"
+
+    - name: Create Vault token credential in Jenkins
+      community.general.jenkins_credential:
+        url: "{{ jenkins_url }}"
+        jenkins_user: "{{ jenkins_admin_user }}"
+        token: "{{ jenkins_token_result.token }}"
+        id: "vault-token"
+        type: "text"
+        secret: "{{ vault_token }}"
+        description: "HashiCorp Vault Token - Access to centralized secrets"
+        state: present
+      register: vault_cred_result
+      ignore_errors: yes
+      no_log: "{{ lock_log }}"
+
+    - name: Create GitHub credentials in Jenkins
+      community.general.jenkins_credential:
+        url: "{{ jenkins_url }}"
+        jenkins_user: "{{ jenkins_admin_user }}"
+        token: "{{ jenkins_token_result.token }}"
+        id: "{{ git_credentials_id }}"
+        type: "username_password"
+        username: "{{ git_credentials_id }}"
+        password: "{{ github_token }}"
+        description: "GitHub Token - Used for git operations and shared library"
+        state: present
+      register: github_cred_result
+      ignore_errors: yes
+      no_log: "{{ lock_log }}"
+
+    - name: Store Jenkins admin credentials in Vault
+      uri:
+        method: PUT
+        url: "http://localhost:8200/v1/secret/data/jenkins/admin"
+        body:
+          data:
+            username: "{{ jenkins_admin_user }}"
+            password: "{{ jenkins_admin_password }}"
+            jenkins_url: "{{ jenkins_url }}"
+        body_format: json
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+          X-Vault-Request: "true"
+        validate_certs: false
+      register: vault_jenkins_result
+      retries: 3
+      delay: 2
+      no_log: "{{ lock_log }}"
+
+    - name: Display configuration summary
+      debug:
+        msg:
+          - "Jenkins configuration completed successfully"
+          - "Jenkins URL: {{ jenkins_url }}"
+          - "Vault token credential created in Jenkins (id: vault-token)"
+          - "GitHub credential created in Jenkins (id: {{ git_credentials_id }})"
+          - "Jenkins admin credentials stored in Vault at secret/data/jenkins/admin"
+          - "Pipelines can now access Vault secrets using vault-token credential"
+          - "Git operations will use {{ git_credentials_id }} credential"
