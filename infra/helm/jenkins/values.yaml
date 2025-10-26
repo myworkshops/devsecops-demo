@@ -81,6 +81,31 @@ controller:
           authorizationStrategy:
             loggedInUsersCanDoAnything:
               allowAnonymousRead: false
+      credentials: |
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: "${GITHUB_CREDENTIALS_ID}"
+                      username: "${GITHUB_CREDENTIALS_ID}"
+                      password: "${GITHUB_TOKEN}"
+                      description: "GitHub Token - Used for git operations and shared library"
+      shared-library: |
+        unclassified:
+          globalLibraries:
+            libraries:
+              - name: "jenkins-library"
+                retriever:
+                  modernSCM:
+                    scm:
+                      git:
+                        remote: "${GIT_REPOSITORY}"
+                        credentialsId: "${GITHUB_CREDENTIALS_ID}"
+                defaultVersion: "${GIT_LIBRARY_BRANCH}"
+                implicit: false
+                allowVersionOverride: true
 
   # Persistent volume
   persistence:

@@ -184,7 +184,7 @@ def deploy_keycloak(admin_password, postgresql_password):
     logger.info("Keycloak deployed successfully")
 
 
-def deploy_jenkins(admin_password):
+def deploy_jenkins(admin_password, git_repository, git_library_branch, git_credentials_id, github_token):
     """Deploy Jenkins using Helm"""
     logger.info("Deploying Jenkins...")
 
@@ -199,6 +199,22 @@ def deploy_jenkins(admin_password):
         '--create-namespace',
         '-f', 'helm/jenkins/values.yaml',
         '--set', f'controller.admin.password={admin_password}',
+        '--set', f'controller.initContainerEnv[0].name=GIT_REPOSITORY',
+        '--set', f'controller.initContainerEnv[0].value={git_repository}',
+        '--set', f'controller.initContainerEnv[1].name=GIT_LIBRARY_BRANCH',
+        '--set', f'controller.initContainerEnv[1].value={git_library_branch}',
+        '--set', f'controller.initContainerEnv[2].name=GITHUB_CREDENTIALS_ID',
+        '--set', f'controller.initContainerEnv[2].value={git_credentials_id}',
+        '--set', f'controller.initContainerEnv[3].name=GITHUB_TOKEN',
+        '--set', f'controller.initContainerEnv[3].value={github_token}',
+        '--set', f'controller.containerEnv[0].name=GIT_REPOSITORY',
+        '--set', f'controller.containerEnv[0].value={git_repository}',
+        '--set', f'controller.containerEnv[1].name=GIT_LIBRARY_BRANCH',
+        '--set', f'controller.containerEnv[1].value={git_library_branch}',
+        '--set', f'controller.containerEnv[2].name=GITHUB_CREDENTIALS_ID',
+        '--set', f'controller.containerEnv[2].value={git_credentials_id}',
+        '--set', f'controller.containerEnv[3].name=GITHUB_TOKEN',
+        '--set', f'controller.containerEnv[3].value={github_token}',
         '--wait',
         '--timeout', '10m'
     ]
@@ -481,7 +497,13 @@ def main():
             vault_port_forward.wait()
 
         # Step 18: Deploy Jenkins
-        deploy_jenkins(config['jenkins']['admin_password'])
+        deploy_jenkins(
+            config['jenkins']['admin_password'],
+            config['jenkins']['git_repository'],
+            config['jenkins']['git_library_branch'],
+            config['jenkins']['git_credentials_id'],
+            config['jenkins']['github_token']
+        )
 
         # Step 19: Verify Jenkins pods are ready
         logger.info("Waiting for Jenkins pods to be ready...")
@@ -517,6 +539,10 @@ def main():
             run_ansible_playbook('ansible/jenkins/configure.yml', {
                 'vault_token': vault_creds['vault']['root_token']
             }, verbose=args.debug)
+
+            # Create Jenkins pipeline jobs
+            logger.info("Creating Jenkins pipeline jobs...")
+            run_ansible_playbook('ansible/jenkins/create-jobs.yml', {}, verbose=args.debug)
 
             logger.info("Jenkins configuration completed")
 
