@@ -1,5 +1,5 @@
 ---
-- name: Create Jenkins pipeline jobs and configure shared library
+- name: Create Jenkins pipeline jobs
   hosts: localhost
   connection: local
   gather_facts: false
@@ -16,6 +16,9 @@
       set_fact:
         jenkins_admin_user: "admin"
         jenkins_admin_password: "{{ secrets.jenkins.admin_password }}"
+        git_repository: "{{ secrets.jenkins.git_repository }}"
+        git_library_branch: "{{ secrets.jenkins.git_library_branch }}"
+        git_credentials_id: "{{ secrets.jenkins.git_credentials_id }}"
         lock_log: "{{ secrets.jenkins.lock_log | default(true) }}"
 
     - name: Wait for Jenkins to be ready
@@ -28,52 +31,6 @@
       until: jenkins_ready.status == 200
       retries: 30
       delay: 10
-
-    - name: Configure Jenkins shared library
-      community.general.jenkins_script:
-        url: "{{ jenkins_url }}"
-        user: "{{ jenkins_admin_user }}"
-        password: "{{ jenkins_admin_password }}"
-        validate_certs: false
-        timeout: 30
-        script: |
-          import jenkins.model.Jenkins
-          import jenkins.plugins.git.GitSCMSource
-          import org.jenkinsci.plugins.workflow.libs.*
-
-          def jenkins = Jenkins.getInstance()
-
-          // Remove existing library if it exists
-          def globalLibraries = jenkins.getDescriptor("org.jenkinsci.plugins.workflow.libs.GlobalLibraries")
-          def existingLibs = globalLibraries.get().getLibraries()
-          existingLibs.removeIf { it.getName() == "jenkins-library" }
-
-          // Create new library configuration
-          def libraryConfiguration = new LibraryConfiguration(
-              "jenkins-library",
-              new SCMSourceRetriever(
-                  new GitSCMSource(
-                      "jenkins-library",
-                      "file:///workspace/jenkins-library",
-                      "",
-                      "",
-                      "",
-                      false
-                  )
-              )
-          )
-          libraryConfiguration.setDefaultVersion("main")
-          libraryConfiguration.setImplicit(false)
-          libraryConfiguration.setAllowVersionOverride(true)
-
-          // Add library
-          existingLibs.add(libraryConfiguration)
-          globalLibraries.get().setLibraries(existingLibs)
-          globalLibraries.save()
-
-          println "✓ Jenkins shared library 'jenkins-library' configured successfully"
-      register: library_result
-      no_log: "{{ lock_log }}"
 
     - name: Create DeployDevSecOpsApp pipeline job
       community.general.jenkins_script:
@@ -102,9 +59,39 @@
           def job = jenkins.createProject(WorkflowJob, jobName)
           job.setDescription("DevSecOps Application Deployment Pipeline - Automated CI/CD with Vault integration")
 
+          // Configure default parameters
+          def paramGitRepo = new hudson.model.StringParameterDefinition(
+              "GIT_REPOSITORY",
+              "{{ git_repository }}",
+              "Git repository URL"
+          )
+          def paramGitBranch = new hudson.model.StringParameterDefinition(
+              "GIT_BRANCH",
+              "main",
+              "Git branch to build"
+          )
+          def paramGitCreds = new hudson.model.StringParameterDefinition(
+              "GIT_CREDENTIALS_ID",
+              "{{ git_credentials_id }}",
+              "Git credentials ID (configured in Jenkins)"
+          )
+          def paramsDef = new hudson.model.ParametersDefinitionProperty(
+              [paramGitRepo, paramGitBranch, paramGitCreds]
+          )
+          job.addProperty(paramsDef)
+
           // Configure to use pipeline script from SCM
-          def scm = new GitSCM("file:///workspace/devsecops_practical_test")
-          scm.branches = [new BranchSpec("*/main")]
+          def scm = new GitSCM("{{ git_repository }}")
+          scm.branches = [new BranchSpec("*/{{ git_library_branch }}")]
+
+          // Add credentials to SCM
+          def userRemoteConfig = new hudson.plugins.git.UserRemoteConfig(
+              "{{ git_repository }}",
+              null,
+              null,
+              "{{ git_credentials_id }}"
+          )
+          scm.userRemoteConfigs = [userRemoteConfig]
 
           def definition = new CpsScmFlowDefinition(scm, "pipelines/DeployDevSecOpsApp.groovy")
           definition.setLightweight(true)
@@ -116,11 +103,48 @@
       register: job_result
       no_log: "{{ lock_log }}"
 
+    - name: Trigger initial pipeline execution
+      community.general.jenkins_script:
+        url: "{{ jenkins_url }}"
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        validate_certs: false
+        timeout: 30
+        script: |
+          import jenkins.model.Jenkins
+          import hudson.model.StringParameterValue
+          import hudson.model.ParametersAction
+
+          def jenkins = Jenkins.getInstance()
+          def jobName = "DeployDevSecOpsApp"
+          def job = jenkins.getItem(jobName)
+
+          if (job != null) {
+              // Create parameters for the build
+              def params = [
+                  new StringParameterValue("GIT_REPOSITORY", "{{ git_repository }}"),
+                  new StringParameterValue("GIT_BRANCH", "{{ git_library_branch }}"),
+                  new StringParameterValue("GIT_CREDENTIALS_ID", "{{ git_credentials_id }}")
+              ]
+              def paramsAction = new ParametersAction(params)
+
+              // Schedule the build with parameters
+              job.scheduleBuild2(0, paramsAction)
+
+              println "✓ Initial build triggered for 'DeployDevSecOpsApp'"
+          } else {
+              println "✗ Job 'DeployDevSecOpsApp' not found"
+          }
+      register: trigger_result
+      no_log: "{{ lock_log }}"
+
     - name: Display configuration summary
       debug:
         msg:
-          - "Jenkins jobs and library configured successfully"
+          - "Jenkins pipeline job created successfully"
           - "Jenkins URL: {{ jenkins_url }}"
-          - "Shared library: jenkins-library (file:///workspace/jenkins-library)"
           - "Pipeline job: DeployDevSecOpsApp"
           - "Pipeline script: pipelines/DeployDevSecOpsApp.groovy"
+          - "Git repository: {{ git_repository }}"
+          - "Git credentials: {{ git_credentials_id }}"
+          - "Note: Shared library 'jenkins-library' configured via JCasC"

@@ -60,6 +60,21 @@
       ignore_errors: yes
       no_log: "{{ lock_log }}"
 
+    - name: Create GitHub credentials in Jenkins
+      community.general.jenkins_credential:
+        url: "{{ jenkins_url }}"
+        jenkins_user: "{{ jenkins_admin_user }}"
+        token: "{{ jenkins_token_result.token }}"
+        id: "{{ git_credentials_id }}"
+        type: "username_password"
+        username: "{{ git_credentials_id }}"
+        password: "{{ github_token }}"
+        description: "GitHub Token - Used for git operations and shared library"
+        state: present
+      register: github_cred_result
+      ignore_errors: yes
+      no_log: "{{ lock_log }}"
+
     - name: Store Jenkins admin credentials in Vault
       uri:
         method: PUT
@@ -85,5 +100,7 @@
           - "Jenkins configuration completed successfully"
           - "Jenkins URL: {{ jenkins_url }}"
           - "Vault token credential created in Jenkins (id: vault-token)"
+          - "GitHub credential created in Jenkins (id: {{ git_credentials_id }})"
           - "Jenkins admin credentials stored in Vault at secret/data/jenkins/admin"
-          - "Pipelines can now access all secrets from Vault using the vault-token credential"
+          - "Pipelines can now access Vault secrets using vault-token credential"
+          - "Git operations will use {{ git_credentials_id }} credential"

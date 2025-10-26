@@ -3,38 +3,29 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'GIT_REPOSITORY', description: 'Git repository URL')
+        string(name: 'GIT_BRANCH', description: 'Git branch to build')
+        string(name: 'GIT_CREDENTIALS_ID', description: 'Git credentials ID (configured in Jenkins)')
+    }
+
     environment {
         VAULT_URL = 'http://vault.vault.svc.cluster.local:8200'
-        GIT_CREDENTIALS_ID = 'github-credentials'
     }
 
     stages {
-        stage('Retrieve Configuration from Vault') {
-            steps {
-                script {
-                    echo '=== Retrieving configuration from Vault ==='
-
-                    // Get Git repository and token from Vault
-                    env.GIT_REPOSITORY = vault.getSecret('secret/data/github', 'repository')
-                    env.GIT_BRANCH = 'main'  // Default branch
-
-                    echo "Repository: ${env.GIT_REPOSITORY}"
-                    echo "Branch: ${env.GIT_BRANCH}"
-                    echo "Credentials ID: ${env.GIT_CREDENTIALS_ID}"
-                    echo '✓ Configuration retrieved from Vault'
-                }
-            }
-        }
-
         stage('Checkout Source Code') {
             steps {
                 script {
                     echo '=== Checking out source code ==='
+                    echo "Repository: ${params.GIT_REPOSITORY}"
+                    echo "Branch: ${params.GIT_BRANCH}"
+                    echo "Credentials ID: ${params.GIT_CREDENTIALS_ID}"
 
                     gitCheckout(
-                        repository: env.GIT_REPOSITORY,
-                        branch: env.GIT_BRANCH,
-                        credentialsId: env.GIT_CREDENTIALS_ID
+                        repository: params.GIT_REPOSITORY,
+                        branch: params.GIT_BRANCH,
+                        credentialsId: params.GIT_CREDENTIALS_ID
                     )
 
                     echo '✓ Source code checked out successfully'
