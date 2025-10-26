@@ -207,6 +207,50 @@ def deploy_jenkins(admin_password):
     logger.info("Jenkins deployed successfully")
 
 
+def deploy_mongodb():
+    """Deploy MongoDB Community Operator using Helm"""
+    logger.info("Deploying MongoDB Community Operator...")
+
+    # Add MongoDB Helm repo
+    add_helm_repo('mongodb', 'https://mongodb.github.io/helm-charts')
+
+    # Install MongoDB Community Operator
+    cmd = [
+        'helm', 'upgrade', '--install', 'mongodb-operator',
+        'mongodb/community-operator',
+        '--namespace', 'mongodb',
+        '--create-namespace',
+        '-f', 'helm/mongodb/values.yaml',
+        '--wait',
+        '--timeout', '5m'
+    ]
+
+    run_command(cmd)
+    logger.info("MongoDB Community Operator deployed successfully")
+
+
+def deploy_external_secrets():
+    """Deploy External Secrets Operator using Helm"""
+    logger.info("Deploying External Secrets Operator...")
+
+    # Add External Secrets Helm repo
+    add_helm_repo('external-secrets', 'https://charts.external-secrets.io')
+
+    # Install External Secrets Operator
+    cmd = [
+        'helm', 'upgrade', '--install', 'external-secrets',
+        'external-secrets/external-secrets',
+        '--namespace', 'external-secrets',
+        '--create-namespace',
+        '-f', 'helm/external-secrets/values.yaml',
+        '--wait',
+        '--timeout', '5m'
+    ]
+
+    run_command(cmd)
+    logger.info("External Secrets Operator deployed successfully")
+
+
 def apply_terraform(directory, vault_credentials, k8s_auth_config):
     """Apply Terraform configuration"""
     logger.info(f"Applying Terraform configuration in {directory}...")
@@ -483,6 +527,26 @@ def main():
             vault_port_forward.terminate()
             jenkins_port_forward.wait()
             vault_port_forward.wait()
+
+        # Step 21: Deploy MongoDB Community Operator
+        deploy_mongodb()
+
+        # Step 22: Verify MongoDB Operator pods are ready
+        logger.info("Waiting for MongoDB Operator pods to be ready...")
+        run_ansible_playbook('ansible/verify-pods.yml', {
+            'namespace': 'mongodb',
+            'label_selector': 'name=mongodb-kubernetes-operator'
+        }, verbose=args.debug)
+
+        # Step 23: Deploy External Secrets Operator
+        deploy_external_secrets()
+
+        # Step 24: Verify External Secrets Operator pods are ready
+        logger.info("Waiting for External Secrets Operator pods to be ready...")
+        run_ansible_playbook('ansible/verify-pods.yml', {
+            'namespace': 'external-secrets',
+            'label_selector': 'app.kubernetes.io/name=external-secrets'
+        }, verbose=args.debug)
 
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
