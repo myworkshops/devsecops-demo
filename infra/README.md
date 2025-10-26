@@ -1,45 +1,160 @@
-# Infrastructure Bootstrap
+# Infrastructure Automation
 
-Automated deployment of the DevSecOps platform on k3d.
+Automated DevSecOps infrastructure deployment for k3d cluster with Vault, Keycloak, Jenkins, MongoDB, and External Secrets Operator.
 
 ## Prerequisites
 
-- Python 3.11+
-- k3d 5.6+
-- kubectl 1.28+
-- helm 3.12+
-- ansible 2.15+
+- **Docker** (running)
+- **k3d** v5.x
+- **kubectl** v1.28+
+- **helm** v3.x
+- **ansible** v2.15+
+- **terraform** v1.5+
+- **python3** 3.11+
 
 ## Quick Start
 
+### 1. Configuration
+
+Copy and customize secrets:
 ```bash
-# Install Ansible collections
-cd ansible
-ansible-galaxy collection install -r requirements.yml
+cp secrets.local.yaml.example secrets.local.yaml
+# Edit secrets.local.yaml with your credentials
+```
 
-# Run bootstrap
-cd ..
+### 2. Deploy Infrastructure
+
+```bash
 python3 bootstrap.py
-
-# Custom configuration
-python3 bootstrap.py --cluster-name production --servers 3 --agents 3
 ```
 
-## What it Does
+**Options:**
+- `--servers N` - Number of k3d server nodes (default: 1)
+- `--agents N` - Number of k3d agent nodes (default: 2)
+- `--cluster-name NAME` - Cluster name (default: cka)
+- `--skip-cluster` - Skip cluster creation (use existing)
+- `--debug` - Enable debug logging
 
-1. Creates k3d cluster with specified topology
-2. Verifies all nodes are Ready
-3. (Next phases: Vault, Keycloak, MongoDB, Jenkins, Applications)
+**Example:**
+```bash
+python3 bootstrap.py --servers 1 --agents 2 --cluster-name dev
+```
 
-## Structure
+## What Gets Deployed
+
+The bootstrap script deploys the following stack:
+
+### 1. **k3d Cluster**
+- 1 server node + 2 agent nodes (configurable)
+- Loadbalancer ports: 80, 443
+
+### 2. **HashiCorp Vault** (HA mode)
+- Namespace: `vault`
+- 2 replicas with Raft storage
+- Auto-initialized and unsealed
+- Kubernetes auth enabled
+
+### 3. **Keycloak** (OIDC)
+- Namespace: `keycloak`
+- PostgreSQL backend
+- Realms: dev, staging, prod
+- Roles: admin, operator
+- Auto-configured users per realm
+
+### 4. **Jenkins** (CI/CD)
+- Namespace: `jenkins`
+- JCasC auto-configuration
+- Shared library configured
+- Vault integration for secrets
+
+### 5. **MongoDB Community Operator**
+- Namespace: `mongodb`
+- Ready for MongoDB deployments
+
+### 6. **External Secrets Operator**
+- Namespace: `external-secrets`
+- Syncs secrets from Vault to K8s
+
+## Infrastructure Components
 
 ```
-infra/
-├── bootstrap.py              # Main bootstrap script
-├── secrets.local.yaml        # Local secrets (not versioned)
-├── ansible/
-│   ├── verify-cluster.yml    # Verify nodes are ready
-│   └── requirements.yml      # Ansible collections
-└── terraform/
-    └── vault/                # Vault configuration
+├── ansible/              # Ansible playbooks
+│   ├── keycloak/        # Keycloak configuration
+│   ├── jenkins/         # Jenkins setup
+│   ├── vault/           # Vault init/unseal
+│   └── verify-*.yml     # Verification playbooks
+├── helm/                # Helm values
+│   ├── vault/
+│   ├── keycloak/
+│   ├── jenkins/
+│   ├── mongodb/
+│   └── external-secrets/
+├── terraform/           # Terraform modules
+│   └── vault/          # Vault policies & secrets engines
+├── bootstrap.py        # Main deployment script
+└── secrets.local.yaml  # Your credentials (not versioned)
 ```
+
+## Accessing Services
+
+After deployment, access services via port-forward:
+
+**Vault:**
+```bash
+kubectl port-forward -n vault svc/vault 8200:8200
+# URL: http://localhost:8200
+# Token: Check bootstrap output
+```
+
+**Keycloak:**
+```bash
+kubectl port-forward -n keycloak svc/keycloak 8080:80
+# URL: http://localhost:8080
+# User: admin / <from secrets.local.yaml>
+```
+
+**Jenkins:**
+```bash
+kubectl port-forward -n jenkins svc/jenkins 8080:8080
+# URL: http://localhost:8080
+# User: admin / <from secrets.local.yaml>
+```
+
+## Verification
+
+Check all pods are running:
+```bash
+kubectl get pods --all-namespaces
+```
+
+Run verification playbook:
+```bash
+cd ansible && ansible-playbook verify-cluster.yml
+```
+
+## Cleanup
+
+```bash
+k3d cluster delete cka
+```
+
+## Troubleshooting
+
+**Vault not unsealing:**
+- Check Vault pods: `kubectl logs -n vault vault-0`
+- Verify unseal keys in `secrets/vault-credentials.yaml`
+
+**Keycloak not starting:**
+- Check PostgreSQL: `kubectl logs -n keycloak keycloak-postgresql-0`
+- Verify password in secrets.local.yaml
+
+**Jenkins jobs not configured:**
+- Check shared library: `kubectl logs -n jenkins jenkins-0`
+- Verify git credentials in Vault
+
+## Security Notes
+
+- **Never commit** `secrets.local.yaml` to version control
+- All secrets stored in Vault
+- Keycloak admin credentials from secrets file
+- Jenkins uses Vault for CI/CD secrets
