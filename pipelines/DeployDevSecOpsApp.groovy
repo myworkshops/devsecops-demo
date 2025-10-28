@@ -1,7 +1,7 @@
 @Library('jenkins-library') _
 
 pipeline {
-    agent any
+    agent none
 
     parameters {
         string(name: 'GIT_REPOSITORY', description: 'Git repository URL')
@@ -11,6 +11,7 @@ pipeline {
 
     stages {
         stage('Load Configuration') {
+            agent any
             steps {
                 script {
                     echo '=== Loading configuration from Vault ==='
@@ -35,6 +36,7 @@ pipeline {
         }
 
         stage('Checkout Source Code') {
+            agent any
             steps {
                 script {
                     echo '=== Checking out source code ==='
@@ -54,6 +56,7 @@ pipeline {
         }
 
         stage('Test: Verify Vault Integration') {
+            agent any
             steps {
                 script {
                     echo '=== Testing Vault integration ==='
@@ -88,6 +91,7 @@ pipeline {
         }
 
         stage('Deploy All Environments') {
+            agent none
             parallel {
                 stage('Deploy Develop Environment') {
                     steps {
@@ -104,35 +108,37 @@ pipeline {
                     }
                 }
 
-                stage('Deploy Stage Environment') {
-                    steps {
-                        script {
-                            echo '=== Deploying stage environment ==='
-                            build job: 'deploy-environment',
-                                parameters: [
-                                    string(name: 'ENVIRONMENT', value: 'stage'),
-                                    string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
-                                ],
-                                wait: false,
-                                propagate: false
-                        }
-                    }
-                }
+                // Commented out - enable when ready for stage deployment
+                // stage('Deploy Stage Environment') {
+                //     steps {
+                //         script {
+                //             echo '=== Deploying stage environment ==='
+                //             build job: 'deploy-environment',
+                //                 parameters: [
+                //                     string(name: 'ENVIRONMENT', value: 'stage'),
+                //                     string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
+                //                 ],
+                //                 wait: false,
+                //                 propagate: false
+                //         }
+                //     }
+                // }
 
-                stage('Deploy Production Environment') {
-                    steps {
-                        script {
-                            echo '=== Deploying production environment ==='
-                            build job: 'deploy-environment',
-                                parameters: [
-                                    string(name: 'ENVIRONMENT', value: 'production'),
-                                    string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
-                                ],
-                                wait: false,
-                                propagate: false
-                        }
-                    }
-                }
+                // Commented out - enable when ready for production deployment
+                // stage('Deploy Production Environment') {
+                //     steps {
+                //         script {
+                //             echo '=== Deploying production environment ==='
+                //             build job: 'deploy-environment',
+                //                 parameters: [
+                //                     string(name: 'ENVIRONMENT', value: 'production'),
+                //                     string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
+                //                 ],
+                //                 wait: false,
+                //                 propagate: false
+                //         }
+                //     }
+                // }
             }
         }
     }
