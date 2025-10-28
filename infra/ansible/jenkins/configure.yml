@@ -75,6 +75,26 @@
       ignore_errors: yes
       no_log: "{{ lock_log }}"
 
+    - name: Get kubeconfig from k3d
+      shell: k3d kubeconfig get cka
+      register: kubeconfig_output
+      changed_when: false
+
+    - name: Create kubeconfig credential in Jenkins
+      community.general.jenkins_credential:
+        url: "{{ jenkins_url }}"
+        jenkins_user: "{{ jenkins_admin_user }}"
+        token: "{{ jenkins_token_result.token }}"
+        id: "kubeconfig"
+        type: "file"
+        filename: "config"
+        content: "{{ kubeconfig_output.stdout }}"
+        description: "Kubeconfig for k3d cluster - Used for kubectl and helm operations"
+        state: present
+      register: kubeconfig_cred_result
+      ignore_errors: yes
+      no_log: "{{ lock_log }}"
+
     - name: Store Jenkins admin credentials in Vault
       uri:
         method: PUT
@@ -94,6 +114,54 @@
       delay: 2
       no_log: "{{ lock_log }}"
 
+    - name: Configure Kubernetes Cloud in Jenkins
+      uri:
+        url: "{{ jenkins_url }}/manage/configureClouds/createItem"
+        method: POST
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        force_basic_auth: true
+        body_format: form-urlencoded
+        body:
+          name: "kubernetes"
+          mode: "com.cloudbees.jenkins.plugins.kubernetes.KubernetesCloud"
+          json: |
+            {
+              "name": "kubernetes",
+              "serverUrl": "https://kubernetes.default.svc.cluster.local",
+              "skipTlsVerify": true,
+              "namespace": "jenkins",
+              "jenkinsUrl": "http://jenkins.jenkins.svc.cluster.local:8080",
+              "jenkinsTunnel": "jenkins-agent.jenkins.svc.cluster.local:50000",
+              "templates": [
+                {
+                  "name": "ansible-agent",
+                  "namespace": "jenkins",
+                  "label": "ansible",
+                  "nodeUsageMode": "NORMAL",
+                  "containers": [
+                    {
+                      "name": "ansible",
+                      "image": "{{ dockerhub_username }}/jenkins-agent-ansible:latest",
+                      "alwaysPullImage": true,
+                      "workingDir": "/home/jenkins/agent",
+                      "command": "",
+                      "args": "",
+                      "ttyEnabled": true,
+                      "resourceRequestCpu": "500m",
+                      "resourceRequestMemory": "512Mi",
+                      "resourceLimitCpu": "1000m",
+                      "resourceLimitMemory": "1Gi"
+                    }
+                  ],
+                  "volumes": []
+                }
+              ]
+            }
+        status_code: [200, 302]
+      register: k8s_cloud_result
+      ignore_errors: yes
+
     - name: Display configuration summary
       debug:
         msg:
@@ -101,6 +169,9 @@
           - "Jenkins URL: {{ jenkins_url }}"
           - "Vault token credential created in Jenkins (id: vault-token)"
           - "GitHub credential created in Jenkins (id: {{ git_credentials_id }})"
+          - "Kubeconfig credential created in Jenkins (id: kubeconfig)"
+          - "Kubernetes cloud configured with ansible-agent pod template"
           - "Jenkins admin credentials stored in Vault at secret/data/jenkins/admin"
           - "Pipelines can now access Vault secrets using vault-token credential"
           - "Git operations will use {{ git_credentials_id }} credential"
+          - "Kubernetes operations will use kubeconfig credential"

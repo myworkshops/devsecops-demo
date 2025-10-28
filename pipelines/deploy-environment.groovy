@@ -1,18 +1,28 @@
 @Library('jenkins-library') _
 
 pipeline {
-    agent any
+    agent {
+        label 'ansible'
+    }
 
     parameters {
         choice(name: 'ENVIRONMENT', choices: ['develop', 'stage', 'production'], description: 'Target environment to deploy')
         string(name: 'DOCKERHUB_REGISTRY', defaultValue: 'wmoinar', description: 'DockerHub registry username')
     }
 
-    environment {
-        VAULT_URL = 'http://vault.vault.svc.cluster.local:8200'
-    }
-
     stages {
+        stage('Load Configuration') {
+            steps {
+                script {
+                    echo "=== Loading configuration from Vault ==="
+                    def config = loadConfig()
+                    // Store in environment variable for other stages
+                    env.KEYCLOAK_CLIENT_CONFIG = writeJSON(returnText: true, json: config.keycloak.clients[0])
+                    echo "✓ Configuration loaded successfully"
+                }
+            }
+        }
+
         stage('Deploy Infrastructure') {
             parallel {
                 stage('Deploy MongoDB') {
@@ -32,10 +42,16 @@ pipeline {
                         script {
                             echo "=== Configuring Keycloak client for ${params.ENVIRONMENT} ==="
 
-                            // Only configure the public frontend client (shared by all apps)
+                            def clientConfig = readJSON text: env.KEYCLOAK_CLIENT_CONFIG
+
+                            // Configure the public frontend client with environment-specific URIs
                             configureKeycloakClient(
                                 environment: params.ENVIRONMENT,
-                                clientId: "statistics-frontend"
+                                clientId: clientConfig.client_id,
+                                name: clientConfig.name,
+                                redirectUris: clientConfig.redirect_uris[params.ENVIRONMENT],
+                                webOrigins: clientConfig.web_origins[params.ENVIRONMENT],
+                                publicClient: clientConfig.public_client
                             )
 
                             echo "✓ Keycloak client configured for ${params.ENVIRONMENT}"
@@ -102,18 +118,20 @@ pipeline {
                 script {
                     echo "=== Verifying ${params.ENVIRONMENT} deployment ==="
 
-                    sh """
-                        echo "Pods in ${params.ENVIRONMENT} namespace:"
-                        kubectl get pods -n ${params.ENVIRONMENT} || true
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                        sh """
+                            echo "Pods in ${params.ENVIRONMENT} namespace:"
+                            kubectl get pods -n ${params.ENVIRONMENT} || true
 
-                        echo ""
-                        echo "Services in ${params.ENVIRONMENT} namespace:"
-                        kubectl get services -n ${params.ENVIRONMENT} || true
+                            echo ""
+                            echo "Services in ${params.ENVIRONMENT} namespace:"
+                            kubectl get services -n ${params.ENVIRONMENT} || true
 
-                        echo ""
-                        echo "Ingresses in ${params.ENVIRONMENT} namespace:"
-                        kubectl get ingress -n ${params.ENVIRONMENT} || true
-                    """
+                            echo ""
+                            echo "Ingresses in ${params.ENVIRONMENT} namespace:"
+                            kubectl get ingress -n ${params.ENVIRONMENT} || true
+                        """
+                    }
 
                     echo "✓ ${params.ENVIRONMENT} environment deployed successfully"
                 }

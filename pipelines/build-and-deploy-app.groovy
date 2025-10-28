@@ -26,6 +26,18 @@ pipeline {
     }
 
     stages {
+        stage('Load Configuration') {
+            steps {
+                script {
+                    echo "=== Loading configuration from Vault ==="
+                    def config = loadConfig()
+                    env.GIT_REPOSITORY = config.jenkins.git_repository
+                    env.GIT_CREDENTIALS_ID = config.jenkins.git_credentials_id
+                    echo "✓ Configuration loaded successfully"
+                }
+            }
+        }
+
         stage('Checkout Source Code') {
             steps {
                 script {
@@ -35,7 +47,7 @@ pipeline {
                         $class: 'GitSCM',
                         branches: [[name: "*/${env.GIT_BRANCH}"]],
                         userRemoteConfigs: [[
-                            url: env.GIT_URL,
+                            url: env.GIT_REPOSITORY,
                             credentialsId: env.GIT_CREDENTIALS_ID
                         ]]
                     ])
@@ -84,13 +96,15 @@ pipeline {
                 script {
                     echo "=== Deploying ${params.APP_NAME} to ${params.ENVIRONMENT} ==="
 
-                    deployApp(
-                        appName: params.APP_NAME,
-                        environment: params.ENVIRONMENT,
-                        helmChart: env.HELM_CHART,
-                        valuesFile: env.HELM_VALUES,
-                        namespace: params.ENVIRONMENT
-                    )
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                        deployApp(
+                            appName: params.APP_NAME,
+                            environment: params.ENVIRONMENT,
+                            helmChart: env.HELM_CHART,
+                            valuesFile: env.HELM_VALUES,
+                            namespace: params.ENVIRONMENT
+                        )
+                    }
 
                     echo "✓ ${params.APP_NAME} deployed to ${params.ENVIRONMENT}"
                 }
@@ -102,10 +116,12 @@ pipeline {
                 script {
                     echo "=== Verifying ${params.APP_NAME} deployment ==="
 
-                    sh """
-                        kubectl rollout status deployment/${params.APP_NAME} -n ${params.ENVIRONMENT} --timeout=5m || true
-                        kubectl get pods -n ${params.ENVIRONMENT} -l app.kubernetes.io/name=${params.APP_NAME} || true
-                    """
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                        sh """
+                            kubectl rollout status deployment/${params.APP_NAME} -n ${params.ENVIRONMENT} --timeout=5m || true
+                            kubectl get pods -n ${params.ENVIRONMENT} -l app.kubernetes.io/name=${params.APP_NAME} || true
+                        """
+                    }
 
                     echo "✓ Deployment verification completed"
                 }

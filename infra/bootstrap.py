@@ -401,6 +401,11 @@ def main():
             'label_selector': 'app.kubernetes.io/name=vault'
         }, verbose=args.debug)
 
+        # Step 9.5: Create Vault Ingress
+        logger.info("Creating Vault Ingress...")
+        run_command(['kubectl', 'apply', '-f', 'helm/vault/ingress.yaml'])
+        logger.info("Vault Ingress created (accessible at http://vault.local)")
+
         # Step 10: Load Vault credentials for Terraform
         vault_creds_file = Path('.vault-credentials.yml')
         if not vault_creds_file.exists():
@@ -436,11 +441,12 @@ def main():
             # Wait for port-forward to establish
             time.sleep(5)
 
+            # Store secrets in Vault (includes complete configuration)
             run_ansible_playbook('ansible/vault/store-secrets.yml', {
                 'vault_token': vault_creds['vault']['root_token']
             }, verbose=args.debug)
 
-            logger.info("Application secrets stored in Vault successfully")
+            logger.info("Application secrets and configuration stored in Vault successfully")
 
             # Setup Kubernetes auth for Vault
             logger.info("Setting up Kubernetes authentication for Vault...")
@@ -462,6 +468,11 @@ def main():
             'namespace': 'keycloak',
             'label_selector': 'app.kubernetes.io/name=keycloak'
         }, verbose=args.debug)
+
+        # Step 16.5: Create Keycloak Ingress
+        logger.info("Creating Keycloak Ingress...")
+        run_command(['kubectl', 'apply', '-f', 'helm/keycloak/ingress.yaml'])
+        logger.info("Keycloak Ingress created (accessible at http://keycloak.local)")
 
         # Step 17: Configure Keycloak (realms, roles, users)
         logger.info("Configuring Keycloak...")
@@ -571,6 +582,11 @@ def main():
             'label_selector': 'app.kubernetes.io/component=jenkins-controller'
         }, verbose=args.debug)
 
+        # Step 19.5: Create Jenkins Ingress
+        logger.info("Creating Jenkins Ingress...")
+        run_command(['kubectl', 'apply', '-f', 'helm/jenkins/ingress.yaml'])
+        logger.info("Jenkins Ingress created (accessible at http://jenkins.local)")
+
         # Step 20: Configure Jenkins (credentials, jobs)
         logger.info("Configuring Jenkins...")
 
@@ -610,6 +626,20 @@ def main():
             logger.debug("Stopping port-forwards...")
             jenkins_port_forward.terminate()
             jenkins_port_forward.wait()
+            vault_port_forward.terminate()
+            vault_port_forward.wait()
+
+        # Step 20.5: Build and push Jenkins agent image with Ansible
+        logger.info("Building Jenkins agent image with Ansible, kubectl, and Helm...")
+        try:
+            run_ansible_playbook('ansible/jenkins/build-agent-image.yml', {
+                'DOCKERHUB_REGISTRY': config['jenkins']['dockerhub_username']
+            }, verbose=args.debug)
+            logger.info("Jenkins agent image built and pushed successfully")
+        except Exception as e:
+            logger.warning(f"Failed to build Jenkins agent image: {e}")
+            logger.warning("You may need to build it manually later with:")
+            logger.warning(f"  cd infra && ansible-playbook ansible/jenkins/build-agent-image.yml -e DOCKERHUB_REGISTRY={config['jenkins']['dockerhub_username']}")
 
         # Step 21: Deploy MongoDB Community Operator cluster-wide
         deploy_mongodb()
@@ -663,12 +693,26 @@ def main():
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
         logger.info("=" * 70)
-        logger.info("Vault URL: http://localhost:8200")
-        logger.info(f"Vault Token: {vault_creds['vault']['root_token']}")
-        logger.info("Keycloak URL: http://localhost:8080 (use kubectl port-forward)")
-        logger.info(f"Keycloak Admin: admin / {config['keycloak']['admin_password']}")
-        logger.info("Jenkins URL: http://localhost:8080 (use kubectl port-forward)")
-        logger.info(f"Jenkins Admin: admin / {config['jenkins']['admin_password']}")
+        logger.info("")
+        logger.info("Access URLs (add to /etc/hosts: 127.0.0.1 vault.local jenkins.local keycloak.local):")
+        logger.info("")
+        logger.info("  Vault:    http://vault.local")
+        logger.info(f"    Token:  {vault_creds['vault']['root_token']}")
+        logger.info("")
+        logger.info("  Jenkins:  http://jenkins.local")
+        logger.info(f"    Admin:  admin / {config['jenkins']['admin_password']}")
+        logger.info("")
+        logger.info("  Keycloak: http://keycloak.local")
+        logger.info(f"    Admin:  admin / {config['keycloak']['admin_password']}")
+        logger.info("")
+        logger.info("Configuration stored in Vault at: secret/config/complete")
+        logger.info("Kubeconfig credential created in Jenkins with ID: kubeconfig")
+        logger.info("")
+        logger.info("Next steps:")
+        logger.info("  1. Add hosts entries: sudo sh -c 'echo \"127.0.0.1 vault.local jenkins.local keycloak.local\" >> /etc/hosts'")
+        logger.info("  2. Access Jenkins at http://jenkins.local")
+        logger.info("  3. Run DeployDevSecOpsApp pipeline to deploy all environments")
+        logger.info("=" * 70)
 
     except BootstrapError as e:
         logger.error(f"Bootstrap failed: {e}")
