@@ -144,19 +144,17 @@ pipeline {
 
     post {
         always {
-            node('any') {
+            script {
                 echo '=== Pipeline completed ==='
-                // Clean up sensitive files
-                sh 'rm -f secrets.json || true'
             }
         }
         success {
-            node('any') {
+            script {
                 echo '✓ DeployDevSecOpsApp pipeline executed successfully'
             }
         }
         failure {
-            node('any') {
+            script {
                 echo '✗ DeployDevSecOpsApp pipeline failed'
             }
         }

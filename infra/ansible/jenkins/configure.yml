@@ -80,6 +80,16 @@
       register: kubeconfig_output
       changed_when: false
 
+    - name: Modify kubeconfig for in-cluster use
+      set_fact:
+        kubeconfig_incluster: "{{ kubeconfig_output.stdout | regex_replace('https://0.0.0.0:[0-9]+', 'https://kubernetes.default.svc.cluster.local:443') }}"
+
+    - name: Write kubeconfig to temporary file
+      copy:
+        content: "{{ kubeconfig_incluster }}"
+        dest: "/tmp/kubeconfig-jenkins"
+        mode: '0600'
+
     - name: Create kubeconfig credential in Jenkins
       community.general.jenkins_credential:
         url: "{{ jenkins_url }}"
@@ -87,13 +97,16 @@
         token: "{{ jenkins_token_result.token }}"
         id: "kubeconfig"
         type: "file"
-        filename: "config"
-        content: "{{ kubeconfig_output.stdout }}"
+        file_path: "/tmp/kubeconfig-jenkins"
         description: "Kubeconfig for k3d cluster - Used for kubectl and helm operations"
         state: present
       register: kubeconfig_cred_result
-      ignore_errors: yes
       no_log: "{{ lock_log }}"
+
+    - name: Clean up temporary kubeconfig file
+      file:
+        path: "/tmp/kubeconfig-jenkins"
+        state: absent
 
     - name: Store Jenkins admin credentials in Vault
       uri:

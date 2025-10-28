@@ -504,17 +504,31 @@ def main():
 
             logger.info("Keycloak configuration completed")
 
-            # Create public clients for frontend applications
+            # Create Keycloak clients (both public and confidential)
             if 'clients' in config.get('keycloak', {}):
                 logger.info("Creating Keycloak clients...")
                 for client in config['keycloak']['clients']:
                     client_id = client['client_id']
                     is_public = client.get('public_client', False)
 
-                    # Create client in each realm/environment
-                    for realm_config in config['keycloak']['realms']:
-                        realm = realm_config['name']
-                        logger.info(f"Creating client '{client_id}' in realm '{realm}'...")
+                    # Determine which environments to create this client in
+                    # Option 1: Client has 'environments' list (for API clients)
+                    # Option 2: Client has 'redirect_uris' or 'web_origins' dict (for frontend clients)
+                    if 'environments' in client:
+                        # API-style: environments list
+                        environments = client['environments']
+                    else:
+                        # Frontend-style: extract from redirect_uris or web_origins keys
+                        environments = list(client.get('redirect_uris', {}).keys()) or \
+                                     list(client.get('web_origins', {}).keys()) or \
+                                     [realm_config['name'] for realm_config in config['keycloak']['realms']]
+
+                    # Create client in each environment
+                    for realm in environments:
+                        # Append environment suffix for confidential clients
+                        full_client_id = f"{client_id}-{realm}" if not is_public else client_id
+
+                        logger.info(f"Creating client '{full_client_id}' in realm '{realm}'...")
 
                         # Prepare redirect URIs and web origins for this environment
                         redirect_uris = client.get('redirect_uris', {}).get(realm, ['*'])
@@ -523,9 +537,9 @@ def main():
                         # Write temporary vars file for complex data structures
                         temp_vars = {
                             'target_env': realm,
-                            'client_id': client_id,
-                            'client_name': client.get('name', client_id),
-                            'client_description': client.get('description', f'OIDC client for {client_id}'),
+                            'client_id': full_client_id,
+                            'client_name': client.get('name', full_client_id),
+                            'client_description': client.get('description', f'OIDC client for {full_client_id}'),
                             'public_client': is_public,
                             'redirect_uris': redirect_uris,
                             'web_origins': web_origins,
@@ -556,7 +570,7 @@ def main():
                             # Clean up temp file
                             os.unlink(temp_vars_file)
 
-                        logger.info(f"Client '{client_id}' created in realm '{realm}'")
+                        logger.info(f"Client '{full_client_id}' created in realm '{realm}'")
 
         finally:
             # Stop port-forwards
@@ -690,6 +704,17 @@ def main():
             'label_selector': 'app.kubernetes.io/name=external-secrets'
         }, verbose=args.debug)
 
+        # Step 25: Build and push Docker images for develop environment
+        logger.info("=" * 70)
+        logger.info("Building and pushing Docker images for develop environment...")
+        logger.info("=" * 70)
+
+        run_ansible_playbook('ansible/build-images.yml', {
+            'target_env': 'develop'
+        }, verbose=args.debug)
+
+        logger.info("All Docker images built and pushed successfully")
+
         logger.info("=" * 70)
         logger.info("Bootstrap Complete: Infrastructure Ready")
         logger.info("=" * 70)
@@ -707,6 +732,12 @@ def main():
         logger.info("")
         logger.info("Configuration stored in Vault at: secret/config/complete")
         logger.info("Kubeconfig credential created in Jenkins with ID: kubeconfig")
+        logger.info("")
+        logger.info("Docker images built and pushed:")
+        logger.info(f"  - {config['jenkins']['dockerhub_username']}/jenkins-agent-ansible:latest (JDK21, no Docker)")
+        logger.info(f"  - {config['jenkins']['dockerhub_username']}/statistics-api:develop-latest")
+        logger.info(f"  - {config['jenkins']['dockerhub_username']}/device-registration-api:develop-latest")
+        logger.info(f"  - {config['jenkins']['dockerhub_username']}/statistics-frontend:develop-latest")
         logger.info("")
         logger.info("Next steps:")
         logger.info("  1. Add hosts entries: sudo sh -c 'echo \"127.0.0.1 vault.local jenkins.local keycloak.local\" >> /etc/hosts'")

@@ -40,7 +40,7 @@ spec:
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
-        {{- if .Values.mongodbSecret }}
+        {{- if and .Values.mongodbSecret .Values.mongodbSecret.name }}
         - name: mongodb_uri
           valueFrom:
             secretKeyRef:

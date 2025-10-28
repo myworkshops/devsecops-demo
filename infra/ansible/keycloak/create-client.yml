@@ -6,7 +6,7 @@
 
   vars:
     # Default to cluster URLs, can be overridden with -e for local execution
-    keycloak_url: "{{ keycloak_server_url | default('http://keycloak.keycloak.svc.cluster.local:8080') }}"
+    keycloak_url: "{{ keycloak_server_url | default('http://keycloak.keycloak.svc.cluster.local') }}"
     vault_url: "{{ vault_server_url | default('http://vault.vault.svc.cluster.local:8200') }}"
     auth_client_id: "admin-cli"
     validate_certs: false
