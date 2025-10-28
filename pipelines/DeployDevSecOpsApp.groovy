@@ -66,6 +66,55 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy All Environments') {
+            parallel {
+                stage('Deploy Develop Environment') {
+                    steps {
+                        script {
+                            echo '=== Deploying develop environment ==='
+                            build job: 'deploy-environment',
+                                parameters: [
+                                    string(name: 'ENVIRONMENT', value: 'develop'),
+                                    string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
+                                ],
+                                wait: false,
+                                propagate: false
+                        }
+                    }
+                }
+
+                stage('Deploy Stage Environment') {
+                    steps {
+                        script {
+                            echo '=== Deploying stage environment ==='
+                            build job: 'deploy-environment',
+                                parameters: [
+                                    string(name: 'ENVIRONMENT', value: 'stage'),
+                                    string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
+                                ],
+                                wait: false,
+                                propagate: false
+                        }
+                    }
+                }
+
+                stage('Deploy Production Environment') {
+                    steps {
+                        script {
+                            echo '=== Deploying production environment ==='
+                            build job: 'deploy-environment',
+                                parameters: [
+                                    string(name: 'ENVIRONMENT', value: 'production'),
+                                    string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar')
+                                ],
+                                wait: false,
+                                propagate: false
+                        }
+                    }
+                }
+            }
+        }
     }
 
     post {
