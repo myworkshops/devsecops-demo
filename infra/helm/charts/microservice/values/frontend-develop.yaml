@@ -1,0 +1,60 @@
+app:
+  name: frontend
+  version: "1.0.0"
+
+replicaCount: 1
+
+image:
+  repository: wmoinar/statistics-frontend
+  tag: "develop-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: app.local
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: app-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: app-develop.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Frontend uses environment-specific config.js
+# No env vars needed as config is baked into image
+env: {}
+
+namespace: develop
+
+# Frontend doesn't need MongoDB
+mongodbSecret:
+  name: ""
+  uriKey: ""
+
+# Frontend doesn't need External Secrets
+externalSecret:
+  enabled: false
+
+secretStore:
+  enabled: false
+
+serviceAccount:
+  create: false

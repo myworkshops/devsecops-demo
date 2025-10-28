@@ -11,6 +11,7 @@ import sys
 import time
 import logging
 import yaml
+import tempfile
 from pathlib import Path
 
 # Logger will be configured in main() based on debug flag
@@ -224,19 +225,20 @@ def deploy_jenkins(admin_password, git_repository, git_library_branch, git_crede
 
 
 def deploy_mongodb():
-    """Deploy MongoDB Community Operator using Helm"""
+    """Deploy MongoDB Community Operator cluster-wide"""
     logger.info("Deploying MongoDB Community Operator...")
 
     # Add MongoDB Helm repo
     add_helm_repo('mongodb', 'https://mongodb.github.io/helm-charts')
 
-    # Install MongoDB Community Operator
+    # Install MongoDB Community Operator cluster-wide (watches all namespaces)
     cmd = [
         'helm', 'upgrade', '--install', 'mongodb-operator',
         'mongodb/community-operator',
-        '--namespace', 'mongodb',
+        '--namespace', 'mongodb-operator',
         '--create-namespace',
         '-f', 'helm/mongodb/values.yaml',
+        '--set', 'operator.watchNamespace=*',
         '--wait',
         '--timeout', '5m'
     ]
@@ -399,18 +401,14 @@ def main():
             'label_selector': 'app.kubernetes.io/name=vault'
         }, verbose=args.debug)
 
-        # Step 10: Setup Kubernetes auth for Vault
-        logger.info("Setting up Kubernetes authentication for Vault...")
-        run_ansible_playbook('ansible/vault/setup-k8s-auth.yml', verbose=args.debug)
-
-        # Step 11: Load Vault credentials for Terraform
+        # Step 10: Load Vault credentials for Terraform
         vault_creds_file = Path('.vault-credentials.yml')
         if not vault_creds_file.exists():
             raise BootstrapError("Vault credentials file not found")
 
         with open(vault_creds_file, 'r') as f:
             vault_creds = yaml.safe_load(f)
-
+        
         # Step 12: Load Kubernetes auth configuration
         k8s_auth_file = Path('.vault-k8s-auth.yml')
         if not k8s_auth_file.exists():
@@ -433,7 +431,7 @@ def main():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-
+        
         try:
             # Wait for port-forward to establish
             time.sleep(5)
@@ -443,6 +441,13 @@ def main():
             }, verbose=args.debug)
 
             logger.info("Application secrets stored in Vault successfully")
+
+            # Setup Kubernetes auth for Vault
+            logger.info("Setting up Kubernetes authentication for Vault...")
+            run_ansible_playbook('ansible/vault/setup-k8s-auth.yml', {
+                'vault_token': vault_creds['vault']['root_token']
+            },verbose=args.debug)
+
         finally:
             # Terminate port-forward
             vault_port_forward.terminate()
@@ -487,6 +492,60 @@ def main():
             }, verbose=args.debug)
 
             logger.info("Keycloak configuration completed")
+
+            # Create public clients for frontend applications
+            if 'clients' in config.get('keycloak', {}):
+                logger.info("Creating Keycloak clients...")
+                for client in config['keycloak']['clients']:
+                    client_id = client['client_id']
+                    is_public = client.get('public_client', False)
+
+                    # Create client in each realm/environment
+                    for realm_config in config['keycloak']['realms']:
+                        realm = realm_config['name']
+                        logger.info(f"Creating client '{client_id}' in realm '{realm}'...")
+
+                        # Prepare redirect URIs and web origins for this environment
+                        redirect_uris = client.get('redirect_uris', {}).get(realm, ['*'])
+                        web_origins = client.get('web_origins', {}).get(realm, ['*'])
+
+                        # Write temporary vars file for complex data structures
+                        temp_vars = {
+                            'target_env': realm,
+                            'client_id': client_id,
+                            'client_name': client.get('name', client_id),
+                            'client_description': client.get('description', f'OIDC client for {client_id}'),
+                            'public_client': is_public,
+                            'redirect_uris': redirect_uris,
+                            'web_origins': web_origins,
+                            'keycloak_admin_user': 'admin',
+                            'keycloak_admin_password': config['keycloak']['admin_password'],
+                            'vault_token': vault_creds['vault']['root_token'],
+                            'keycloak_server_url': 'http://localhost:8080',
+                            'vault_server_url': 'http://localhost:8200'
+                        }
+
+                        # Create temporary vars file
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+                            yaml.dump(temp_vars, f)
+                            temp_vars_file = f.name
+
+                        try:
+                            # Run playbook with vars file
+                            cmd = ['ansible-playbook', 'ansible/keycloak/create-client.yml']
+                            cmd.extend(['-e', f'@{temp_vars_file}'])
+                            if args.debug:
+                                cmd.append('-v')
+
+                            env = os.environ.copy()
+                            env['ANSIBLE_CONFIG'] = 'ansible/ansible.cfg'
+
+                            run_command(cmd, show_output=args.debug, cwd=None, env=env)
+                        finally:
+                            # Clean up temp file
+                            os.unlink(temp_vars_file)
+
+                        logger.info(f"Client '{client_id}' created in realm '{realm}'")
 
         finally:
             # Stop port-forwards
@@ -550,19 +609,46 @@ def main():
             # Stop port-forwards
             logger.debug("Stopping port-forwards...")
             jenkins_port_forward.terminate()
-            vault_port_forward.terminate()
             jenkins_port_forward.wait()
-            vault_port_forward.wait()
 
-        # Step 21: Deploy MongoDB Community Operator
+        # Step 21: Deploy MongoDB Community Operator cluster-wide
         deploy_mongodb()
 
         # Step 22: Verify MongoDB Operator pods are ready
         logger.info("Waiting for MongoDB Operator pods to be ready...")
         run_ansible_playbook('ansible/verify-pods.yml', {
-            'namespace': 'mongodb',
+            'namespace': 'mongodb-operator',
             'label_selector': 'name=mongodb-kubernetes-operator'
         }, verbose=args.debug)
+
+        # Step 22b: Configure MongoDB secrets in Vault
+        logger.info("Configuring MongoDB secrets in Vault...")
+
+        # Start port-forward to Vault in background
+        logger.debug("Starting port-forward to Vault...")
+        vault_port_forward = subprocess.Popen(
+            ['kubectl', 'port-forward', '-n', 'vault', 'svc/vault', '8200:8200'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        try:
+            # Wait for port-forward to establish
+            time.sleep(5)
+
+            for target_env in config['mongodb']:
+                logger.info(f"Storing MongoDB secrets for environment: {target_env}")
+                run_ansible_playbook('ansible/mongodb/configure-vault-secrets.yml', {
+                    'vault_token': vault_creds['vault']['root_token'],
+                    'target_env': target_env
+                }, verbose=args.debug)
+
+            logger.info("MongoDB secrets stored in Vault successfully")
+        finally:
+            # Terminate port-forward
+            logger.debug("Stopping port-forward to Vault...")
+            vault_port_forward.terminate()
+            vault_port_forward.wait()
 
         # Step 23: Deploy External Secrets Operator
         deploy_external_secrets()

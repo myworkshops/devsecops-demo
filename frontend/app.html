@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Statistics - Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>Device Statistics</h1>
+            <div class="user-info">
+                <span id="userName">Loading...</span>
+                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="grid">
+            <!-- Register Section -->
+            <div class="card">
+                <h2>Register Login Event</h2>
+                <p class="card-subtitle">Record a device login event</p>
+
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="registerDevice">Device Type</label>
+                        <select id="registerDevice" required>
+                            <option value="">Select device type...</option>
+                            <option value="iOS">iOS</option>
+                            <option value="Android">Android</option>
+                            <option value="Watch">Watch</option>
+                            <option value="TV">TV</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="registerBtn">
+                        Register
+                    </button>
+                </form>
+
+                <div id="registerMessage" class="message" style="display: none;"></div>
+            </div>
+
+            <!-- Statistics Section -->
+            <div class="card">
+                <h2>Device Statistics</h2>
+                <p class="card-subtitle">Query login events by device type</p>
+
+                <form id="statsForm">
+                    <div class="form-group">
+                        <label for="statsDevice">Device Type</label>
+                        <select id="statsDevice" required>
+                            <option value="">Select device type...</option>
+                            <option value="iOS">iOS</option>
+                            <option value="Android">Android</option>
+                            <option value="Watch">Watch</option>
+                            <option value="TV">TV</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="queryBtn">
+                        Query Statistics
+                    </button>
+                </form>
+
+                <div id="statsResult" class="stats-result" style="display: none;">
+                    <div class="stat-item">
+                        <span class="stat-label">Device Type:</span>
+                        <span id="resultDeviceType" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Count:</span>
+                        <span id="resultCount" class="stat-value">-</span>
+                    </div>
+                </div>
+
+                <div id="statsMessage" class="message" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

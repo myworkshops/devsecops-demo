@@ -1,0 +1,10 @@
+apiVersion: v2
+name: common
+description: Common Helm library chart for DevSecOps applications
+type: library
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - library
+  - common
+  - devsecops

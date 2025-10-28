@@ -1,0 +1,63 @@
+app:
+  name: statistics-api
+  version: "1.0.0"
+
+replicaCount: 1
+
+image:
+  repository: wmoinar/statistics-api
+  tag: "develop-latest"
+  pullPolicy: Always
+
+ingress:
+  enabled: true
+  hosts:
+    - host: statistics-api-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  mongodb_database: "device_registration"
+  keycloak_server_url: "http://keycloak.keycloak.svc.cluster.local"
+  keycloak_realm: "develop"
+  keycloak_client_id: "statistics-api-develop"
+  device_registration_api_url: "http://device-registration-api-microservice.develop.svc.cluster.local:8000/Device/register"
+  cors_origins: "http://app.local,http://app-dev.local,http://app-develop.local,http://localhost:8080"
+  debug: "true"
+
+namespace: develop
+
+# Use existing MongoDB secret (created by MongoDB operator)
+mongodbSecret:
+  name: "mongodb-develop-admin-app-user"
+  uriKey: "connectionString.standard"
+
+# External Secrets only for Keycloak credentials
+externalSecret:
+  name: "statistics-api-client-secrets"
+  enabled: true
+  refreshInterval: "15m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: keycloak_client_id
+      remoteKey: secret-develop/data/keycloak/statistics-api-develop
+      property: client_id
+    - secretKey: keycloak_client_secret
+      remoteKey: secret-develop/data/keycloak/statistics-api-develop
+      property: secret_id
+
+secretStore:
+  enabled: false  # Already exists, created by mongodb-develop
+
+serviceAccount:
+  create: false  # Use existing vault-sa from mongodb-develop

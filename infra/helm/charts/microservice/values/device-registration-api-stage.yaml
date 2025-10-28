@@ -1,0 +1,60 @@
+app:
+  name: device-registration-api
+  version: "1.0.0"
+
+replicaCount: 2
+
+image:
+  repository: wmoinar/device-registration-api
+  tag: "stage-latest"
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  mongodb_database: "device_registration"
+  keycloak_server_url: "http://keycloak.keycloak.svc.cluster.local:8080"
+  keycloak_realm: "stage"
+  keycloak_client_id: "device-registration-api-stage"
+  debug: "false"
+
+namespace: stage
+
+externalSecret:
+  name: "device-registration-api-client-secrets"
+  enabled: true
+  refreshInterval: "15m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: mongodb_uri
+      remoteKey: secret-stage/data/mongodb
+      property: uri
+    - secretKey: mongodb_password
+      remoteKey: secret-stage/data/mongodb
+      property: password
+    - secretKey: keycloak_client_id
+      remoteKey: secret-stage/data/keycloak/device-registration-api-stage
+      property: client_id
+    - secretKey: keycloak_client_secret
+      remoteKey: secret-stage/data/keycloak/device-registration-api-stage
+      property: secret_id
+
+secretStore:
+  enabled: true
+  name: "vault-backend"
+  vault:
+    server: "http://vault.vault.svc:8200"
+    path: "secret-stage"
+    auth:
+      mountPath: "kubernetes"
+      role: "stage"
+      serviceAccount: "vault-sa"

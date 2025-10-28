@@ -1,0 +1,66 @@
+app:
+  name: device-registration-api
+  version: "1.0.0"
+
+replicaCount: 3
+
+image:
+  repository: wmoinar/device-registration-api
+  tag: "v1.0.0"
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 75
+
+env:
+  mongodb_database: "device_registration"
+  keycloak_server_url: "http://keycloak.keycloak.svc.cluster.local:8080"
+  keycloak_realm: "production"
+  keycloak_client_id: "device-registration-api-production"
+  debug: "false"
+
+namespace: production
+
+externalSecret:
+  name: "app-secrets"
+  enabled: true
+  refreshInterval: "30m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: mongodb_uri
+      remoteKey: secret-production/data/mongodb
+      property: uri
+    - secretKey: mongodb_password
+      remoteKey: secret-production/data/mongodb
+      property: password
+    - secretKey: keycloak_client_id
+      remoteKey: secret-production/data/keycloak/device-registration-api-production
+      property: client_id
+    - secretKey: keycloak_client_secret
+      remoteKey: secret-production/data/keycloak/device-registration-api-production
+      property: secret_id
+
+secretStore:
+  enabled: true
+  name: "vault-backend"
+  vault:
+    server: "http://vault.vault.svc:8200"
+    path: "secret-production"
+    auth:
+      mountPath: "kubernetes"
+      role: "production"
+      serviceAccount: "vault-sa"

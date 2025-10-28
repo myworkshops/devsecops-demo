@@ -1,0 +1,131 @@
+---
+- name: Create Keycloak OIDC client and store in Vault
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Default to cluster URLs, can be overridden with -e for local execution
+    keycloak_url: "{{ keycloak_server_url | default('http://keycloak.keycloak.svc.cluster.local:8080') }}"
+    vault_url: "{{ vault_server_url | default('http://vault.vault.svc.cluster.local:8200') }}"
+    auth_client_id: "admin-cli"
+    validate_certs: false
+    # Client type defaults (can be overridden)
+    is_public_client: "{{ public_client | default(false) }}"
+    client_redirect_uris: "{{ redirect_uris | default(['*']) }}"
+    client_web_origins: "{{ web_origins | default(['*']) }}"
+
+  tasks:
+    - name: Validate required parameters
+      assert:
+        that:
+          - target_env is defined
+          - client_id is defined
+          - keycloak_admin_user is defined
+          - keycloak_admin_password is defined
+          - vault_token is defined
+        fail_msg: "Missing required parameters: target_env, client_id, keycloak_admin_user, keycloak_admin_password, vault_token"
+
+    - name: Set realm to environment
+      set_fact:
+        realm: "{{ target_env }}"
+
+    - name: Set auth variables for token retrieval
+      set_fact:
+        auth_username: "{{ keycloak_admin_user }}"
+        auth_password: "{{ keycloak_admin_password }}"
+        lock_log: false
+
+    - name: Get Keycloak authentication token
+      include_tasks: auth_token.yml
+
+    - name: Create Keycloak client (public or confidential)
+      community.general.keycloak_client:
+        auth_client_id: "{{ auth_client_id }}"
+        auth_keycloak_url: "{{ keycloak_url }}"
+        token: "{{ keycloak_token }}"
+        validate_certs: "{{ validate_certs }}"
+        client_id: "{{ client_id }}"
+        realm: "{{ realm }}"
+        name: "{{ client_name | default(client_id) }}"
+        description: "{{ client_description | default('OIDC client for ' + client_id + ' in ' + target_env) }}"
+        enabled: true
+        client_authenticator_type: "{{ 'client-secret' if not is_public_client else omit }}"
+        public_client: "{{ is_public_client }}"
+        standard_flow_enabled: true
+        direct_access_grants_enabled: "{{ false if is_public_client else true }}"
+        service_accounts_enabled: "{{ false if is_public_client else true }}"
+        redirect_uris: "{{ client_redirect_uris }}"
+        web_origins: "{{ client_web_origins }}"
+        state: present
+      register: client_result
+      no_log: false
+
+    - name: Get client secret (confidential clients only)
+      community.general.keycloak_clientsecret_info:
+        id: "{{ client_result.end_state.id }}"
+        auth_client_id: "{{ auth_client_id }}"
+        auth_keycloak_url: "{{ keycloak_url }}"
+        token: "{{ keycloak_token }}"
+        validate_certs: "{{ validate_certs }}"
+        realm: "{{ realm }}"
+      register: client_secret_info
+      when: not is_public_client
+      no_log: false
+
+    - name: Store confidential client credentials in Vault (with secret)
+      uri:
+        method: PUT
+        url: "{{ vault_url }}/v1/secret-{{ target_env }}/data/keycloak/{{ client_id }}"
+        body:
+          data:
+            client_id: "{{ client_id }}"
+            secret_id: "{{ client_secret_info.clientsecret_info.value }}"
+            realm: "{{ realm }}"
+            public_client: false
+        body_format: json
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+          X-Vault-Request: "true"
+        status_code: [200, 204]
+        validate_certs: false
+      retries: 3
+      delay: 2
+      when: not is_public_client
+      no_log: false
+
+    - name: Store public client configuration in Vault (no secret)
+      uri:
+        method: PUT
+        url: "{{ vault_url }}/v1/secret-{{ target_env }}/data/keycloak/{{ client_id }}"
+        body:
+          data:
+            client_id: "{{ client_id }}"
+            realm: "{{ realm }}"
+            public_client: true
+        body_format: json
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+          X-Vault-Request: "true"
+        status_code: [200, 204]
+        validate_certs: false
+      retries: 3
+      delay: 2
+      when: is_public_client
+      no_log: false
+
+    - name: Success message (confidential client)
+      debug:
+        msg:
+          - "Confidential client {{ client_id }} created in realm {{ realm }}"
+          - "Credentials stored in Vault: secret-{{ target_env }}/data/keycloak/{{ client_id }}"
+      when: not is_public_client
+
+    - name: Success message (public client)
+      debug:
+        msg:
+          - "Public client {{ client_id }} created in realm {{ realm }}"
+          - "Client ID stored in Vault: secret-{{ target_env }}/data/keycloak/{{ client_id }}"
+          - "Web origins: {{ client_web_origins }}"
+          - "Redirect URIs: {{ client_redirect_uris }}"
+      when: is_public_client

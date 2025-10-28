@@ -40,6 +40,12 @@ spec:
         }
     }
 
+    parameters {
+        booleanParam(name: 'TRIGGER_DEPLOY', defaultValue: false, description: 'Trigger deployment after tests')
+        choice(name: 'APP_TO_DEPLOY', choices: ['statistics-api', 'device-registration-api'], description: 'Application to deploy')
+        choice(name: 'DEPLOY_ENVIRONMENT', choices: ['develop', 'stage', 'production'], description: 'Target environment')
+    }
+
     options {
         timestamps()
         ansiColor('xterm')
@@ -193,6 +199,28 @@ spec:
                     echo "- Docker pull: OK"
                     echo "- SonarCloud connection: OK"
                     echo "=========================================="
+                }
+            }
+        }
+
+        stage('Deploy Application (Child Pipeline)') {
+            when {
+                expression { params.TRIGGER_DEPLOY == true }
+            }
+            steps {
+                script {
+                    echo "Triggering deployment pipeline..."
+                    build job: 'pipelines/deploy-app',
+                        parameters: [
+                            choice(name: 'APP_NAME', value: params.APP_TO_DEPLOY),
+                            choice(name: 'ENVIRONMENT', value: params.DEPLOY_ENVIRONMENT),
+                            string(name: 'IMAGE_TAG', value: ''),
+                            string(name: 'DOCKERHUB_REGISTRY', value: 'wmoinar'),
+                            booleanParam(name: 'SKIP_BUILD', value: false),
+                            booleanParam(name: 'DEPLOY_MONGODB', value: true),
+                            booleanParam(name: 'CONFIGURE_KEYCLOAK', value: true)
+                        ],
+                        wait: true
                 }
             }
         }
