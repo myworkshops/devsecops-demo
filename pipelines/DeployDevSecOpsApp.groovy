@@ -91,7 +91,6 @@ pipeline {
         }
 
         stage('Deploy All Environments') {
-            agent none
             parallel {
                 stage('Deploy Develop Environment') {
                     steps {
@@ -145,15 +144,21 @@ pipeline {
 
     post {
         always {
-            echo '=== Pipeline completed ==='
-            // Clean up sensitive files
-            sh 'rm -f secrets.json || true'
+            node('any') {
+                echo '=== Pipeline completed ==='
+                // Clean up sensitive files
+                sh 'rm -f secrets.json || true'
+            }
         }
         success {
-            echo '✓ DeployDevSecOpsApp pipeline executed successfully'
+            node('any') {
+                echo '✓ DeployDevSecOpsApp pipeline executed successfully'
+            }
         }
         failure {
-            echo '✗ DeployDevSecOpsApp pipeline failed'
+            node('any') {
+                echo '✗ DeployDevSecOpsApp pipeline failed'
+            }
         }
     }
 }
