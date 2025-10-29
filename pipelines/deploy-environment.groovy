@@ -15,11 +15,13 @@ pipeline {
             steps {
                 script {
                     echo "=== Loading configuration from Vault ==="
-                    def config = loadConfig()
-                    // Store in environment variables for other stages
-                    env.KEYCLOAK_CLIENT_CONFIG = writeJSON(returnText: true, json: config.keycloak.clients[0])
-                    env.KEYCLOAK_ADMIN_USER = config.keycloak.admin_user
-                    env.KEYCLOAK_ADMIN_PASSWORD = config.keycloak.admin_password
+                    retry(3) {
+                        def config = loadConfig()
+                        // Store in environment variables for other stages
+                        env.KEYCLOAK_CLIENT_CONFIG = writeJSON(returnText: true, json: config.keycloak.clients[0])
+                        env.KEYCLOAK_ADMIN_USER = config.keycloak.admin_user
+                        env.KEYCLOAK_ADMIN_PASSWORD = config.keycloak.admin_password
+                    }
                     echo "✓ Configuration loaded successfully"
                 }
             }
@@ -29,9 +31,11 @@ pipeline {
             steps {
                 script {
                     echo "=== Deploying MongoDB for ${params.ENVIRONMENT} ==="
-                    deployMongoDB(
-                        environment: params.ENVIRONMENT
-                    )
+                    retry(3) {
+                        deployMongoDB(
+                            environment: params.ENVIRONMENT
+                        )
+                    }
                     echo "✓ MongoDB deployed for ${params.ENVIRONMENT}"
                 }
             }
@@ -43,14 +47,16 @@ pipeline {
                     steps {
                         script {
                             echo "=== Deploying statistics-api to ${params.ENVIRONMENT} ==="
-                            build job: 'deploy-app',
-                                parameters: [
-                                    string(name: 'APP_NAME', value: 'statistics-api'),
-                                    string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
-                                    string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
-                                ],
-                                wait: true,
-                                propagate: true
+                            retry(3) {
+                                build job: 'deploy-app',
+                                    parameters: [
+                                        string(name: 'APP_NAME', value: 'statistics-api'),
+                                        string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
+                                        string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
+                                    ],
+                                    wait: true,
+                                    propagate: true
+                            }
                         }
                     }
                 }
@@ -59,14 +65,16 @@ pipeline {
                     steps {
                         script {
                             echo "=== Deploying device-registration-api to ${params.ENVIRONMENT} ==="
-                            build job: 'deploy-app',
-                                parameters: [
-                                    string(name: 'APP_NAME', value: 'device-registration-api'),
-                                    string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
-                                    string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
-                                ],
-                                wait: true,
-                                propagate: true
+                            retry(3) {
+                                build job: 'deploy-app',
+                                    parameters: [
+                                        string(name: 'APP_NAME', value: 'device-registration-api'),
+                                        string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
+                                        string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
+                                    ],
+                                    wait: true,
+                                    propagate: true
+                            }
                         }
                     }
                 }
@@ -75,14 +83,16 @@ pipeline {
                     steps {
                         script {
                             echo "=== Deploying frontend to ${params.ENVIRONMENT} ==="
-                            build job: 'deploy-app',
-                                parameters: [
-                                    string(name: 'APP_NAME', value: 'frontend'),
-                                    string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
-                                    string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
-                                ],
-                                wait: true,
-                                propagate: true
+                            retry(3) {
+                                build job: 'deploy-app',
+                                    parameters: [
+                                        string(name: 'APP_NAME', value: 'frontend'),
+                                        string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
+                                        string(name: 'DOCKERHUB_REGISTRY', value: params.DOCKERHUB_REGISTRY)
+                                    ],
+                                    wait: true,
+                                    propagate: true
+                            }
                         }
                     }
                 }

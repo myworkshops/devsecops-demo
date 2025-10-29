@@ -722,7 +722,7 @@ def main():
         logger.info("Kubeconfig credential created in Jenkins with ID: kubeconfig")
         logger.info("")
         logger.info("Docker images built and pushed:")
-        logger.info(f"  - {config['jenkins']['dockerhub_username']}/jenkins-agent-ansible:latest (JDK21, no Docker)")
+        logger.info(f"  - {config['jenkins']['dockerhub_username']}/jenkins-agent-ansible:latest")
         logger.info(f"  - {config['jenkins']['dockerhub_username']}/statistics-api:develop-latest")
         logger.info(f"  - {config['jenkins']['dockerhub_username']}/device-registration-api:develop-latest")
         logger.info(f"  - {config['jenkins']['dockerhub_username']}/statistics-frontend:develop-latest")
