@@ -1,0 +1,79 @@
+app:
+  name: statistics-api
+  version: "1.0.0"
+
+replicaCount: 3
+
+image:
+  repository: wmoinar/statistics-api
+  tag: "v1.0.0"
+
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  hosts:
+    - host: statistics-api.production.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: statistics-api-tls
+      hosts:
+        - statistics-api.production.local
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+env:
+  mongodb_database: "device_statistics"
+  keycloak_server_url: "http://keycloak.keycloak.svc.cluster.local:8080"
+  keycloak_realm: "production"
+  keycloak_client_id: "statistics-api-production"
+  device_registration_api_url: "http://device-registration-api-microservice.production.svc.cluster.local:8000/Device/register"
+  debug: "false"
+
+namespace: production
+
+externalSecret:
+  name: "app-secrets"
+  enabled: true
+  refreshInterval: "30m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: mongodb_uri
+      remoteKey: secret-production/data/mongodb
+      property: uri
+    - secretKey: mongodb_password
+      remoteKey: secret-production/data/mongodb
+      property: password
+    - secretKey: keycloak_client_id
+      remoteKey: secret-production/data/keycloak/statistics-api-production
+      property: client_id
+    - secretKey: keycloak_client_secret
+      remoteKey: secret-production/data/keycloak/statistics-api-production
+      property: secret_id
+
+secretStore:
+  enabled: true
+  name: "vault-backend"
+  vault:
+    server: "http://vault.vault.svc:8200"
+    path: "secret-production"
+    auth:
+      mountPath: "kubernetes"
+      role: "production"
+      serviceAccount: "vault-sa"

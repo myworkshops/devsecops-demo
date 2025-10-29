@@ -1,0 +1,39 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb-{{ .Values.environment }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ReplicaSet
+  members: {{ .Values.mongodb.replicas }}
+  version: {{ .Values.mongodb.version | quote }}
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: {{ .Values.mongodb.appUser }}
+      db: admin
+      passwordSecretRef:
+        name: {{ .Values.externalSecret.name }}-secret
+      roles:
+        - name: readWrite
+          db: {{ .Values.mongodb.database }}
+      scramCredentialsSecretName: mongodb-{{ .Values.environment }}-admin
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: {{ .Values.mongodb.storage.storageClass }}
+            resources:
+              requests:
+                storage: {{ .Values.mongodb.storage.size }}
+      template:
+        spec:
+          serviceAccountName: mongodb-database
+          containers:
+            - name: mongod
+              resources:
+                {{- toYaml .Values.mongodb.resources | nindent 16 }}

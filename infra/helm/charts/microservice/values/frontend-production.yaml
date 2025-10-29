@@ -1,0 +1,72 @@
+app:
+  name: frontend
+  version: "1.0.0"
+
+replicaCount: 3
+
+image:
+  repository: wmoinar/statistics-frontend
+  tag: "production-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: www.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: frontend-tls
+      hosts:
+        - app.example.com
+        - www.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 200m
+    memory: 128Mi
+
+# Frontend uses environment-specific config.js
+# No env vars needed as config is baked into image
+env: {}
+
+# Health check configuration for frontend
+healthCheck:
+  liveness:
+    path: "/health"
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  readiness:
+    path: "/health"
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+namespace: production
+
+# Frontend doesn't need MongoDB - removed to avoid template issues
+
+# Frontend doesn't need External Secrets
+externalSecret:
+  enabled: false
+
+secretStore:
+  enabled: false
+
+serviceAccount:
+  create: false

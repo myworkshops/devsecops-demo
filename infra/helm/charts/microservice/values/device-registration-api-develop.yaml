@@ -1,0 +1,57 @@
+app:
+  name: device-registration-api
+  version: "1.0.0"
+
+replicaCount: 1
+
+image:
+  repository: wmoinar/device-registration-api
+  tag: "develop-latest"
+  pullPolicy: Always
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  mongodb_database: "device_registration"
+  keycloak_server_url: "http://keycloak.keycloak.svc.cluster.local"
+  keycloak_realm: "develop"
+  keycloak_client_id: "device-registration-api-develop"
+  cors_origins: "http://app.local,http://app-dev.local,http://app-develop.local,http://localhost:8080"
+  debug: "true"
+
+namespace: develop
+
+# Use existing MongoDB secret (created by MongoDB operator)
+mongodbSecret:
+  name: "mongodb-develop-admin-app-user"
+  uriKey: "connectionString.standard"
+
+# External Secrets only for Keycloak credentials
+externalSecret:
+  name: "device-registration-client-secrets"
+  enabled: true
+  refreshInterval: "15m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: keycloak_client_id
+      remoteKey: secret-develop/data/keycloak/device-registration-api-develop
+      property: client_id
+    - secretKey: keycloak_client_secret
+      remoteKey: secret-develop/data/keycloak/device-registration-api-develop
+      property: secret_id
+
+secretStore:
+  enabled: false  # Already exists, created by mongodb-develop
+
+serviceAccount:
+  create: false  # Use existing vault-sa from mongodb-develop

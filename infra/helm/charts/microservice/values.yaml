@@ -1,0 +1,107 @@
+# Default values for microservice chart
+# Override these in application-specific values files
+
+app:
+  name: ""
+  version: "1.0.0"
+
+replicaCount: 2
+
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: false
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts: []
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  httpGet:
+    path: /live
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+env: {}
+
+externalSecret:
+  enabled: false
+  refreshInterval: "15m"
+  secretStore: "vault-backend"
+  secretStoreKind: "ClusterSecretStore"
+  data: []
+    # - secretKey: mongodb_password
+    #   remoteKey: secret/data/mongodb
+    #   property: password
+
+secretStore:
+  enabled: false
+
+namespace: ""
+
+healthCheck:
+  liveness:
+    path: "/live"
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readiness:
+    path: "/ready"
+    initialDelaySeconds: 10
+    periodSeconds: 5

@@ -1,0 +1,41 @@
+namespace: stage
+environment: stage
+
+secretStore:
+  enabled: true
+  name: "vault-backend"
+  vault:
+    server: "http://vault.vault.svc:8200"
+    path: "secret-stage"
+    auth:
+      mountPath: "kubernetes"
+      role: "stage"
+      serviceAccount: "vault-sa"
+
+externalSecret:
+  name: "mongodb-external"
+  enabled: true
+  refreshInterval: "15m"
+  secretStore: "vault-backend"
+  secretStoreKind: "SecretStore"
+  data:
+    - secretKey: password
+      remoteKey: secret-stage/data/mongodb
+      property: password
+
+mongodb:
+  version: "8.0.3"
+  replicas: 1
+  storage:
+    size: 1Gi
+    storageClass: local-path
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "500m"
+      memory: 512Mi
+  adminUser: admin
+  database: device_registration
+  appUser: app_user

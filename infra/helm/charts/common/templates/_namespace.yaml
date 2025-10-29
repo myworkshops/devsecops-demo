@@ -1,0 +1,11 @@
+{{- define "common.namespace" -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace | default .Release.Namespace }}
+  labels:
+    {{- if .Values.environment }}
+    environment: {{ .Values.environment }}
+    {{- end }}
+    {{- include "common.labels" . | nindent 4 }}
+{{- end -}}

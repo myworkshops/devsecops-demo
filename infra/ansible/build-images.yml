@@ -1,0 +1,116 @@
+---
+- name: Build and push Docker images
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    target_env: "develop"
+    project_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Load configuration from secrets file
+      include_vars:
+        file: "{{ playbook_dir }}/../secrets.local.yaml"
+        name: secrets
+
+    - name: Set variables
+      set_fact:
+        docker_registry: "{{ DOCKERHUB_REGISTRY | default(secrets.jenkins.dockerhub_username, true) }}"
+        docker_username: "{{ secrets.jenkins.dockerhub_username }}"
+        docker_password: "{{ secrets.jenkins.dockerhub_password }}"
+        image_tag: "{{ target_env }}-latest"
+        services_path: "{{ project_root }}/services"
+
+    - name: Log in to DockerHub
+      community.docker.docker_login:
+        username: "{{ docker_username }}"
+        password: "{{ docker_password }}"
+        registry_url: "https://index.docker.io/v1/"
+      no_log: true
+
+    - name: Build Jenkins agent image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/jenkins-agent-ansible"
+        tag: "latest"
+        build:
+          path: "{{ playbook_dir }}/../docker/jenkins-agent-ansible"
+          pull: true
+        source: build
+        state: present
+      register: jenkins_agent_result
+
+    - name: Push Jenkins agent image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/jenkins-agent-ansible"
+        tag: "latest"
+        push: true
+        source: local
+      when: jenkins_agent_result is succeeded
+
+    - name: Build statistics-api image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/statistics-api"
+        tag: "{{ image_tag }}"
+        build:
+          path: "{{ services_path }}"
+          dockerfile: "statistics-api/Dockerfile"
+          pull: true
+        source: build
+        state: present
+      register: statistics_api_result
+
+    - name: Push statistics-api image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/statistics-api"
+        tag: "{{ image_tag }}"
+        push: true
+        source: local
+      when: statistics_api_result is succeeded
+
+    - name: Build device-registration-api image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/device-registration-api"
+        tag: "{{ image_tag }}"
+        build:
+          path: "{{ services_path }}"
+          dockerfile: "device-registration-api/Dockerfile"
+          pull: true
+        source: build
+        state: present
+      register: device_registration_api_result
+
+    - name: Push device-registration-api image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/device-registration-api"
+        tag: "{{ image_tag }}"
+        push: true
+        source: local
+      when: device_registration_api_result is succeeded
+
+    - name: Build statistics-frontend image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/statistics-frontend"
+        tag: "{{ image_tag }}"
+        build:
+          path: "{{ services_path }}/frontend"
+          pull: true
+        source: build
+        state: present
+      register: frontend_result
+
+    - name: Push statistics-frontend image
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/statistics-frontend"
+        tag: "{{ image_tag }}"
+        push: true
+        source: local
+      when: frontend_result is succeeded
+
+    - name: Display build summary
+      debug:
+        msg:
+          - "Docker images built and pushed successfully for environment: {{ target_env }}"
+          - "Jenkins agent: {{ docker_registry }}/jenkins-agent-ansible:latest"
+          - "statistics-api: {{ docker_registry }}/statistics-api:{{ image_tag }}"
+          - "device-registration-api: {{ docker_registry }}/device-registration-api:{{ image_tag }}"
+          - "statistics-frontend: {{ docker_registry }}/statistics-frontend:{{ image_tag }}"

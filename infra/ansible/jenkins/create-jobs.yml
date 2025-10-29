@@ -67,7 +67,7 @@
           )
           def paramGitBranch = new hudson.model.StringParameterDefinition(
               "GIT_BRANCH",
-              "main",
+              "{{ git_library_branch }}",
               "Git branch to build"
           )
           def paramGitCreds = new hudson.model.StringParameterDefinition(
@@ -101,6 +101,106 @@
 
           println "✓ Pipeline job 'DeployDevSecOpsApp' created successfully"
       register: job_result
+      no_log: "{{ lock_log }}"
+
+    - name: Create deploy-environment pipeline job
+      community.general.jenkins_script:
+        url: "{{ jenkins_url }}"
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        validate_certs: false
+        timeout: 30
+        script: |
+          import jenkins.model.Jenkins
+          import org.jenkinsci.plugins.workflow.job.WorkflowJob
+          import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition
+          import hudson.plugins.git.GitSCM
+          import hudson.plugins.git.BranchSpec
+
+          def jenkins = Jenkins.getInstance()
+          def jobName = "deploy-environment"
+
+          // Delete job if it exists
+          def existingJob = jenkins.getItem(jobName)
+          if (existingJob != null) {
+              existingJob.delete()
+          }
+
+          // Create new pipeline job
+          def job = jenkins.createProject(WorkflowJob, jobName)
+          job.setDescription("Deploy complete environment (MongoDB + Keycloak + all applications)")
+
+          // Configure to use pipeline script from SCM
+          def scm = new GitSCM("{{ git_repository }}")
+          scm.branches = [new BranchSpec("*/{{ git_library_branch }}")]
+
+          // Add credentials to SCM
+          def userRemoteConfig = new hudson.plugins.git.UserRemoteConfig(
+              "{{ git_repository }}",
+              null,
+              null,
+              "{{ git_credentials_id }}"
+          )
+          scm.userRemoteConfigs = [userRemoteConfig]
+
+          def definition = new CpsScmFlowDefinition(scm, "pipelines/deploy-environment.groovy")
+          definition.setLightweight(true)
+          job.setDefinition(definition)
+
+          job.save()
+
+          println "✓ Pipeline job 'deploy-environment' created successfully"
+      register: deploy_environment_result
+      no_log: "{{ lock_log }}"
+
+    - name: Create deploy-app pipeline job
+      community.general.jenkins_script:
+        url: "{{ jenkins_url }}"
+        user: "{{ jenkins_admin_user }}"
+        password: "{{ jenkins_admin_password }}"
+        validate_certs: false
+        timeout: 30
+        script: |
+          import jenkins.model.Jenkins
+          import org.jenkinsci.plugins.workflow.job.WorkflowJob
+          import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition
+          import hudson.plugins.git.GitSCM
+          import hudson.plugins.git.BranchSpec
+
+          def jenkins = Jenkins.getInstance()
+          def jobName = "deploy-app"
+
+          // Delete job if it exists
+          def existingJob = jenkins.getItem(jobName)
+          if (existingJob != null) {
+              existingJob.delete()
+          }
+
+          // Create new pipeline job
+          def job = jenkins.createProject(WorkflowJob, jobName)
+          job.setDescription("Deploy application with Helm using pre-built images (generic, reusable)")
+
+          // Configure to use pipeline script from SCM
+          def scm = new GitSCM("{{ git_repository }}")
+          scm.branches = [new BranchSpec("*/{{ git_library_branch }}")]
+
+          // Add credentials to SCM
+          def userRemoteConfig = new hudson.plugins.git.UserRemoteConfig(
+              "{{ git_repository }}",
+              null,
+              null,
+              "{{ git_credentials_id }}"
+          )
+          scm.userRemoteConfigs = [userRemoteConfig]
+
+          def definition = new CpsScmFlowDefinition(scm, "pipelines/deploy-app.groovy")
+          definition.setLightweight(true)
+          job.setDefinition(definition)
+
+          job.save()
+
+          println "✓ Pipeline job 'deploy-app' created successfully"
+      register: deploy_app_result
       no_log: "{{ lock_log }}"
 
     - name: Trigger initial pipeline execution
@@ -141,10 +241,24 @@
     - name: Display configuration summary
       debug:
         msg:
-          - "Jenkins pipeline job created successfully"
+          - "Jenkins pipeline jobs created successfully"
           - "Jenkins URL: {{ jenkins_url }}"
-          - "Pipeline job: DeployDevSecOpsApp"
-          - "Pipeline script: pipelines/DeployDevSecOpsApp.groovy"
+          - ""
+          - "Main pipeline: DeployDevSecOpsApp"
+          - "  - Script: pipelines/DeployDevSecOpsApp.groovy"
+          - "  - Runs Vault tests and deploys all environments in parallel"
+          - ""
+          - "Environment deployment: deploy-environment"
+          - "  - Script: pipelines/deploy-environment.groovy"
+          - "  - Deploys MongoDB + all applications for one environment"
+          - "  - Parameters: ENVIRONMENT (develop/stage/production)"
+          - ""
+          - "Application deployment: deploy-app"
+          - "  - Script: pipelines/deploy-app.groovy"
+          - "  - Generic pipeline: helm deploy using pre-built images"
+          - "  - Parameters: APP_NAME, ENVIRONMENT, DOCKERHUB_REGISTRY"
+          - ""
           - "Git repository: {{ git_repository }}"
-          - "Git credentials: {{ git_credentials_id }}"
+          - "Git branch: {{ git_library_branch }}"
+          - "Environment branches: develop→develop, stage→stage, production→main"
           - "Note: Shared library 'jenkins-library' configured via JCasC"

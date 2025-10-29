@@ -78,17 +78,20 @@
         kubernetes_ca_cert_b64: "{{ ca_secret.resources[0].data['ca.crt'] }}"
         kubernetes_host: "{{ k8s_host.stdout }}"
 
-    - name: Save Kubernetes auth configuration
-      copy:
-        content: |
-          ---
-          kubernetes:
-            host: "{{ kubernetes_host }}"
-            ca_cert: "{{ kubernetes_ca_cert_b64 }}"
-            token_reviewer_jwt: "{{ token_reviewer_jwt }}"
-        dest: "{{ output_file }}"
-        mode: '0600'
+    - name: Decode CA cert
+      set_fact:
+        kubernetes_ca_cert: "{{ kubernetes_ca_cert_b64 | b64decode }}"
 
-    - name: Display configuration saved
-      debug:
-        msg: "Kubernetes auth configuration saved to {{ output_file }}"
+    - name: Configure Vault Kubernetes auth
+      uri:
+        url: "http://localhost:8200/v1/auth/kubernetes/config"
+        method: PUT
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+        body_format: json
+        body:
+          kubernetes_host: "https://kubernetes.default.svc:443"
+          kubernetes_ca_cert: "{{ kubernetes_ca_cert }}"
+          token_reviewer_jwt: "{{ token_reviewer_jwt }}"
+        status_code: 200, 204
+        validate_certs: false
