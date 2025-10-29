@@ -643,18 +643,6 @@ def main():
             vault_port_forward.terminate()
             vault_port_forward.wait()
 
-        # Step 20.5: Build and push Jenkins agent image with Ansible
-        logger.info("Building Jenkins agent image with Ansible, kubectl, and Helm...")
-        try:
-            run_ansible_playbook('ansible/jenkins/build-agent-image.yml', {
-                'DOCKERHUB_REGISTRY': config['jenkins']['dockerhub_username']
-            }, verbose=args.debug)
-            logger.info("Jenkins agent image built and pushed successfully")
-        except Exception as e:
-            logger.warning(f"Failed to build Jenkins agent image: {e}")
-            logger.warning("You may need to build it manually later with:")
-            logger.warning(f"  cd infra && ansible-playbook ansible/jenkins/build-agent-image.yml -e DOCKERHUB_REGISTRY={config['jenkins']['dockerhub_username']}")
-
         # Step 21: Deploy MongoDB Community Operator cluster-wide
         deploy_mongodb()
 

@@ -53,7 +53,7 @@
         client_authenticator_type: "{{ 'client-secret' if not is_public_client else omit }}"
         public_client: "{{ is_public_client }}"
         standard_flow_enabled: true
-        direct_access_grants_enabled: "{{ false if is_public_client else true }}"
+        direct_access_grants_enabled: true
         service_accounts_enabled: "{{ false if is_public_client else true }}"
         redirect_uris: "{{ client_redirect_uris }}"
         web_origins: "{{ client_web_origins }}"
