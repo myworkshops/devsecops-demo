@@ -11,7 +11,7 @@ image:
 
 service:
   type: ClusterIP
-  port: 80
+  port: 8080
 
 ingress:
   enabled: true
@@ -42,12 +42,20 @@ resources:
 # No env vars needed as config is baked into image
 env: {}
 
+# Health check configuration for frontend
+healthCheck:
+  liveness:
+    path: "/health"
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  readiness:
+    path: "/health"
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
 namespace: develop
 
-# Frontend doesn't need MongoDB
-mongodbSecret:
-  name: ""
-  uriKey: ""
+# Frontend doesn't need MongoDB - removed to avoid template issues
 
 # Frontend doesn't need External Secrets
 externalSecret:

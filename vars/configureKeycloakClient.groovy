@@ -10,7 +10,7 @@ def call(Map config) {
     echo "=== Configuring Keycloak client: ${clientId} in ${environment} ==="
 
     runAnsiblePlaybook(
-        playbook: 'infra/ansible/keycloak/create-client.yml',
+        playbook: 'ansible/keycloak/create-client.yml',
         extraVars: [
             target_env: environment,
             client_id: clientId,

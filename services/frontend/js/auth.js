@@ -8,7 +8,8 @@ class Auth {
     // Login with Keycloak using Authorization Code Flow
     login() {
         const authUrl = `${CONFIG.keycloak.url}/realms/${CONFIG.keycloak.realm}/protocol/openid-connect/auth`;
-        const redirectUri = `${CONFIG.frontend.url}/app.html`;
+        // Use window.location.origin to dynamically detect the frontend URL
+        const redirectUri = `${window.location.origin}/app.html`;
 
         const params = new URLSearchParams({
             client_id: CONFIG.keycloak.clientId,
@@ -26,7 +27,8 @@ class Auth {
         console.log('[AUTH] Code:', code.substring(0, 20) + '...');
 
         const tokenUrl = `${CONFIG.keycloak.url}/realms/${CONFIG.keycloak.realm}/protocol/openid-connect/token`;
-        const redirectUri = `${CONFIG.frontend.url}/app.html`;
+        // Use window.location.origin to dynamically detect the frontend URL
+        const redirectUri = `${window.location.origin}/app.html`;
 
         console.log('[AUTH] Token URL:', tokenUrl);
         console.log('[AUTH] Redirect URI:', redirectUri);
@@ -127,7 +129,8 @@ class Auth {
         this.userInfo = null;
 
         const logoutUrl = `${CONFIG.keycloak.url}/realms/${CONFIG.keycloak.realm}/protocol/openid-connect/logout`;
-        const redirectUri = `${CONFIG.frontend.url}/login.html`;
+        // Use window.location.origin to dynamically detect the frontend URL
+        const redirectUri = `${window.location.origin}/login.html`;
 
         window.location.href = `${logoutUrl}?redirect_uri=${encodeURIComponent(redirectUri)}`;
     }

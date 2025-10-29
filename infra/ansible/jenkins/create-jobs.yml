@@ -153,7 +153,7 @@
       register: deploy_environment_result
       no_log: "{{ lock_log }}"
 
-    - name: Create build-and-deploy-app pipeline job
+    - name: Create deploy-app pipeline job
       community.general.jenkins_script:
         url: "{{ jenkins_url }}"
         user: "{{ jenkins_admin_user }}"
@@ -168,7 +168,7 @@
           import hudson.plugins.git.BranchSpec
 
           def jenkins = Jenkins.getInstance()
-          def jobName = "build-and-deploy-app"
+          def jobName = "deploy-app"
 
           // Delete job if it exists
           def existingJob = jenkins.getItem(jobName)
@@ -178,7 +178,7 @@
 
           // Create new pipeline job
           def job = jenkins.createProject(WorkflowJob, jobName)
-          job.setDescription("Build Docker image, push to registry, and deploy with Helm (generic, reusable)")
+          job.setDescription("Deploy application with Helm using pre-built images (generic, reusable)")
 
           // Configure to use pipeline script from SCM
           def scm = new GitSCM("{{ git_repository }}")
@@ -193,14 +193,14 @@
           )
           scm.userRemoteConfigs = [userRemoteConfig]
 
-          def definition = new CpsScmFlowDefinition(scm, "pipelines/build-and-deploy-app.groovy")
+          def definition = new CpsScmFlowDefinition(scm, "pipelines/deploy-app.groovy")
           definition.setLightweight(true)
           job.setDefinition(definition)
 
           job.save()
 
-          println "✓ Pipeline job 'build-and-deploy-app' created successfully"
-      register: build_and_deploy_result
+          println "✓ Pipeline job 'deploy-app' created successfully"
+      register: deploy_app_result
       no_log: "{{ lock_log }}"
 
     - name: Trigger initial pipeline execution
@@ -250,12 +250,12 @@
           - ""
           - "Environment deployment: deploy-environment"
           - "  - Script: pipelines/deploy-environment.groovy"
-          - "  - Deploys MongoDB + Keycloak + all applications for one environment"
+          - "  - Deploys MongoDB + all applications for one environment"
           - "  - Parameters: ENVIRONMENT (develop/stage/production)"
           - ""
-          - "Application build/deploy: build-and-deploy-app"
-          - "  - Script: pipelines/build-and-deploy-app.groovy"
-          - "  - Generic pipeline: checkout → build → push → helm deploy"
+          - "Application deployment: deploy-app"
+          - "  - Script: pipelines/deploy-app.groovy"
+          - "  - Generic pipeline: helm deploy using pre-built images"
           - "  - Parameters: APP_NAME, ENVIRONMENT, DOCKERHUB_REGISTRY"
           - ""
           - "Git repository: {{ git_repository }}"
